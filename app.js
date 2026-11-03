@@ -37,7 +37,8 @@
       due: "due" in u ? u.due : r.answer.due,
       onTop: "onTop" in u ? u.onTop : r.answer.onTop,
       pressure: "pressure" in u ? u.pressure : r.answer.pressure,
-      cant: "cant" in u ? u.cant : r.cantRemember
+      cant: "cant" in u ? u.cant : r.cantRemember,
+      act: u.act
     };
   }
   function whole(d) { return S.whole[d.date] != null ? S.whole[d.date] : d.whole; }
@@ -424,7 +425,8 @@
       scene(r.moving, a.cant ? 1 : a.pressure, r.moving ? "The blob on its feet" : "The blob at its desk") +
       '<p style="margin-top:18px;font-size:17px">' + momentStory(d, r) + "</p>" +
       '<div class="chips" style="margin-bottom:16px"><span class="chip"><i class="sw" style="background:' + (r.moving ? "var(--orange)" : "var(--plum)") + '"></i>' +
-      (r.moving ? "On the move" : "Barely moving") + '</span><span class="chip">' + r.steps10 + ' steps</span><span class="chip">' + r.bpm + " bpm</span></div>" +
+      (r.moving ? "On the move" : "Barely moving") + '</span><span class="chip">' + r.steps10 + ' steps</span><span class="chip">' + r.bpm + " bpm</span>" +
+      '<span class="chip">' + (a.act ? "You said: " + ACT[a.act] : "Fitbit's guess: " + ACT[guessActivity(d, r)]) + "</span></div>" +
       '<div class="inner" style="padding:12px">' + hrChart(d, Math.max(0, r.peakMin - 90), Math.min(1440, r.peakMin + 90), {
         w: 640, h: 220, sel: i, label: "Heart rate 90 minutes either side of " + fmtTime(r.peakMin),
         ticks: [-90, -45, 0, 45, 90].map(function (o) { return r.peakMin + o; }).filter(function (m) { return m >= 0 && m <= 1440; })
@@ -516,10 +518,71 @@
     return h + "</div></div></div>";
   }
 
+  // ---------- stories from Fitbit activity ----------
+  var ACT = { sport: "Exercising", feet: "On its feet, working", walk: "Walking somewhere", desk: "Sitting, working", relax: "Sitting, relaxing" };
+  function stillFor(d, r) {
+    var n = 0;
+    for (var s = r.peakMin / 5 - 1; s >= 0 && n < 36; s--) { if (d.series[s][2] >= 60) break; n++; }
+    return n * 5;
+  }
+  function guessActivity(d, r) {
+    var lift = r.bpm - d.rhr;
+    if (r.moving && r.steps10 >= 500 && lift >= 60) return "sport";
+    if (r.moving) return r.mins >= 45 ? "feet" : "walk";
+    return stillFor(d, r) >= 45 ? "desk" : "relax";
+  }
+  function span(m) {
+    if (m < 60) return m + " minutes";
+    if (m < 90) return "about an hour";
+    return "about " + Math.round(m / 30) / 2 + " hours";
+  }
+  function activityStory(d, r, act) {
+    var t = fmtTime(r.peakMin), lift = Math.round(r.bpm - d.rhr), still = stillFor(d, r);
+    var when = r.peakMin < 720 ? "in the morning" : r.peakMin < 1080 ? "in the afternoon" : "in the evening";
+    switch (act) {
+      case "sport":
+        return t + ". The blob is moving fast: " + r.steps10 + " steps in ten minutes, and its heart is up at " + r.bpm + " bpm. It looks like exercise, a game or a run. Its heart is pounding, but the blob can't tell if that's the running or something else.";
+      case "feet":
+        return t + ". The blob has been on its feet for " + span(r.mins) + ", about " + r.steps10 + " steps every ten minutes. Back and forth, back and forth. Its heart sits at " + r.bpm + " bpm. It might be a busy shift. The blob is tired, but is it under pressure?";
+      case "walk":
+        return t + ". The blob is walking somewhere " + when + ", " + r.steps10 + " steps in ten minutes. Its heart climbs to " + r.bpm + " bpm. Is it heading to something, or away from something? The blob doesn't know.";
+      case "desk":
+        return t + ". The blob has barely moved for " + span(Math.max(still, 10)) + ". It's probably working at a desk. Then, without a single step, its heart races to " + r.bpm + " bpm, " + lift + " above resting. Nothing in its body explains it.";
+      default:
+        return t + ". The blob is sitting still " + when + ", only " + r.steps10 + " steps in ten minutes. Maybe it's resting, maybe it's with people. But its heart races to " + r.bpm + " bpm and stays up for " + span(r.mins) + ". Something has its attention.";
+    }
+  }
+
+  function weekStories() {
+    var d = dayBy(S.day);
+    var h = '<section class="card" data-tour="st-week" style="margin-bottom:28px"><h2>Stories from its ' + shortDate(d.date) + "</h2>" +
+      '<p class="small">Made up from what your Fitbit saw. If the blob got the story wrong, tell it what it was really doing.</p>';
+    if (!d.rises.length) {
+      return h + "<p style=\"margin:0\">A calm day for the blob. Its heart stayed close to resting all day. Nothing to talk through tonight.</p></section>";
+    }
+    h += '<div class="story-grid" style="margin-top:16px">';
+    d.rises.forEach(function (r, i) {
+      var a = ans(d, i), k = mKey(d, i), g = guessActivity(d, r), act = a.act || g;
+      h += '<div class="inner story-tile" aria-label="Moment at ' + fmtTime(r.peakMin) + '">' +
+        scene(act !== "desk" && act !== "relax", a.cant ? 1 : a.pressure, ACT[act]) +
+        '<p style="margin:16px 0;font-size:16px">' + esc(activityStory(d, r, act)) + "</p>" +
+        '<p style="margin:0 0 8px;font-weight:700;color:var(--ink)">What was the blob doing?</p>' +
+        '<div class="pills" role="radiogroup" aria-label="What was the blob doing at ' + fmtTime(r.peakMin) + '?">' +
+        Object.keys(ACT).map(function (id) {
+          return '<button type="button" class="pill" role="radio" aria-checked="' + (act === id) + '" data-act="act" data-key="' + k + '" data-v="' + id + '" data-fid="act' + k + id + '">' +
+            ACT[id] + (id === g ? ' <span class="muted">· Fitbit\'s guess</span>' : "") + "</button>";
+        }).join("") + "</div>" +
+        '<p style="margin:18px 0 8px;font-weight:700;color:var(--ink)">How much pressure was it feeling?</p>' +
+        scale("mp:" + k, a.cant ? null : a.pressure, 0.65, "How much pressure was it feeling at " + fmtTime(r.peakMin) + "?") +
+        "</div>";
+    });
+    return h + "</div></section>";
+  }
+
   function viewStories() {
     var h = '<div class="wrap"><div class="head" style="max-width:760px"><h1>Help the blob understand.</h1>' +
       "<p>Come back to its stories any time. Change how flat each one leaves the blob, or tell it what a story is missing.</p></div>" +
-      '<div class="story-grid">';
+      weekStories() + '<h2>The blob\'s first stories</h2><div class="story-grid">';
     DATA.stories.forEach(function (_, i) {
       var s = story(i), fb = S.fb[i] || {};
       h += '<section class="card story-tile"' + (i === 0 ? ' data-tour="st-first"' : "") + ' aria-label="Story ' + (i + 1) + ' of 8">' +
@@ -582,7 +645,8 @@
     { r: "review", t: "r-moment", h: "Tonight with the blob", b: "Each moment its heart raced, told as a short story with the steps before it and a close-up of the heart rate." },
     { r: "review", t: "r-help", h: "Help the blob understand", b: "Two quick questions and the scale. If you can't remember, the blob leaves that moment out." },
     { r: "review", t: "r-map", h: "The day map", b: "Every moment placed by how much the blob was moving and how much pressure it felt: Pressure, Overload, Effort or Neither." },
-    { r: "stories", t: "st-first", h: "Its stories, any time", b: "Come back to the blob's stories whenever you like. Change how flat each one leaves it, say whether it feels right, and tell it what it's missing." },
+    { r: "stories", t: "st-week", h: "Stories from its day", b: "The blob makes up a short story for each moment, from what your Fitbit saw. Tell it what it was really doing and how much pressure it felt." },
+    { r: "stories", t: "st-first", h: "Its first stories, any time", b: "Come back to the blob's first 8 stories whenever you like. Change how flat each one leaves it, say whether it feels right, and tell it what it's missing." },
     { r: "headspace", t: "h-sugg", h: "What it learned", b: "Once the blob sees a pattern across enough days, it suggests a small way to look after you both." },
     { r: "headspace", t: "h-links", h: "What it has noticed", b: "Four links between your body and your headspace. Each one shows how sure the blob is so far." },
     { r: "headspace", t: "h-guess", h: "Your guess vs the day", b: "Open circles are your morning guess. Filled circles are how the day actually left the blob." },
@@ -674,7 +738,7 @@
       if (a.getAttribute("data-tab") === r) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
     var dp = document.getElementById("daypick");
-    dp.innerHTML = r === "today" || r === "review"
+    dp.innerHTML = r === "today" || r === "review" || r === "stories"
       ? '<label class="vh" for="day-select">Day</label><select id="day-select">' + DAYS.map(function (d) {
           return '<option value="' + d.date + '"' + (d.date === S.day ? " selected" : "") + ">" + shortDate(d.date) + "</option>";
         }).join("") + "</select>"
@@ -734,6 +798,7 @@
     else if (act === "next") { var n = dayBy(S.day).rises.length; S.mi = (Math.min(S.mi, n - 1) + 1) % n; commit(); }
     else if (act === "mi") { S.mi = +v; commit(); }
     else if (act === "sugg") { S.sugg[key] = S.sugg[key] === v ? undefined : v; commit(); }
+    else if (act === "act") { var am = (S.m[key] = S.m[key] || {}); am.act = am.act === v ? undefined : v; commit(); }
     else if (act === "fb") { var f = (S.fb[key] = S.fb[key] || {}); f.verdict = f.verdict === v ? undefined : v; commit(); }
     else if (act === "goday") { S.day = v; S.mi = 0; save(); location.hash = "#today"; }
     else if (act === "mark") toast("Marked. The blob will ask you about it tonight.");
