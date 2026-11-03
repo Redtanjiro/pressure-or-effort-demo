@@ -4,13 +4,13 @@
   var DATA = window.POE_DATA;
   var DAYS = DATA.days;
   var KEY = "poe-live-v1";
-  var ROUTES = ["welcome", "setup", "today", "review", "headspace", "blob"];
+  var ROUTES = ["welcome", "setup", "today", "review", "stories", "headspace", "blob"];
 
   // ---------- state ----------
   var S = load();
   function blank() {
     return { done: false, step: 0, story: 0, tryLevel: 4, day: DAYS[DAYS.length - 1].date, mi: 0,
-      stories: {}, m: {}, whole: {}, guess: {}, match: {}, sugg: {} };
+      stories: {}, fb: {}, m: {}, whole: {}, guess: {}, match: {}, sugg: {} };
   }
   function load() {
     var s = blank();
@@ -516,6 +516,32 @@
     return h + "</div></div></div>";
   }
 
+  function viewStories() {
+    var h = '<div class="wrap"><div class="head" style="max-width:760px"><h1>Help the blob understand.</h1>' +
+      "<p>Come back to its stories any time. Change how flat each one leaves the blob, or tell it what a story is missing.</p></div>" +
+      '<div class="story-grid">';
+    DATA.stories.forEach(function (_, i) {
+      var s = story(i), fb = S.fb[i] || {};
+      h += '<section class="card story-tile"' + (i === 0 ? ' data-tour="st-first"' : "") + ' aria-label="Story ' + (i + 1) + ' of 8">' +
+        '<p class="small" style="margin-bottom:10px">Story ' + (i + 1) + " of 8</p>" + scene(s.moving, s.blob) +
+        '<div class="story-card">' +
+        factorRow("due", s.due ? "The blob has an assessment due tomorrow." : "The blob has nothing due this week.") +
+        factorRow("moving", s.moving ? "It has been on its feet for hours." : "It has been sitting at a desk for hours.") +
+        factorRow("behind", s.behind ? "It's behind, and no one can help." : "It's on top of things.") + "</div>" +
+        '<h3 style="margin-top:20px">How much pressure does the blob feel?</h3>' + scale("sb:" + i, s.blob, 0.7, "How much pressure does the blob feel? Story " + (i + 1)) +
+        '<p style="margin:18px 0 8px;font-weight:700;color:var(--ink)">And how much would you feel, in its place?</p>' + scale("sy:" + i, s.you, 0.6, "And how much would you feel, in its place? Story " + (i + 1)) +
+        '<p style="margin:20px 0 8px;font-weight:700;color:var(--ink)">Does this story feel right for the blob?</p>' +
+        '<div class="pills" role="radiogroup" aria-label="Does story ' + (i + 1) + ' feel right for the blob?">' +
+        [["right", "Feels right"], ["notquite", "Not quite"]].map(function (o) {
+          return '<button type="button" class="pill" role="radio" aria-checked="' + (fb.verdict === o[0]) + '" data-act="fb" data-key="' + i + '" data-v="' + o[0] + '" data-fid="fb' + i + o[0] + '">' + o[1] + "</button>";
+        }).join("") + "</div>" +
+        '<label class="fb-label" for="fb-note-' + i + '">Tell the blob what it\'s missing</label>' +
+        '<textarea class="fb-note" id="fb-note-' + i + '" data-note="' + i + '" rows="2" placeholder="A shift after a deadline feels different…">' + esc(fb.note || "") + "</textarea>" +
+        "</section>";
+    });
+    return h + '</div><div class="btns" style="margin-top:24px"><a class="btn primary" href="#blob">See what the blob learned</a></div></div>';
+  }
+
   function viewBlob(fromSetup) {
     var e = effects();
     function row(label, v, color) {
@@ -556,6 +582,7 @@
     { r: "review", t: "r-moment", h: "Tonight with the blob", b: "Each moment its heart raced, told as a short story with the steps before it and a close-up of the heart rate." },
     { r: "review", t: "r-help", h: "Help the blob understand", b: "Two quick questions and the scale. If you can't remember, the blob leaves that moment out." },
     { r: "review", t: "r-map", h: "The day map", b: "Every moment placed by how much the blob was moving and how much pressure it felt: Pressure, Overload, Effort or Neither." },
+    { r: "stories", t: "st-first", h: "Its stories, any time", b: "Come back to the blob's stories whenever you like. Change how flat each one leaves it, say whether it feels right, and tell it what it's missing." },
     { r: "headspace", t: "h-sugg", h: "What it learned", b: "Once the blob sees a pattern across enough days, it suggests a small way to look after you both." },
     { r: "headspace", t: "h-links", h: "What it has noticed", b: "Four links between your body and your headspace. Each one shows how sure the blob is so far." },
     { r: "headspace", t: "h-guess", h: "Your guess vs the day", b: "Open circles are your morning guess. Filled circles are how the day actually left the blob." },
@@ -641,7 +668,7 @@
   function render() {
     var r = route(), app = document.getElementById("app");
     var fid = document.activeElement && document.activeElement.getAttribute("data-fid");
-    var html = { welcome: viewWelcome, setup: viewSetup, today: viewToday, review: viewReview, headspace: viewHeadspace, blob: function () { return viewBlob(false); } }[r]();
+    var html = { welcome: viewWelcome, setup: viewSetup, today: viewToday, review: viewReview, stories: viewStories, headspace: viewHeadspace, blob: function () { return viewBlob(false); } }[r]();
     app.innerHTML = html;
     document.querySelectorAll(".tabs a").forEach(function (a) {
       if (a.getAttribute("data-tab") === r) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -655,7 +682,7 @@
     if (r !== lastRoute) {
       window.scrollTo(0, 0);
       if (lastRoute !== null) app.focus({ preventScroll: true });
-      document.title = { welcome: "Pressure or Effort", setup: "Meet the blob · Pressure or Effort", today: "The blob's day · Pressure or Effort", review: "Tonight · Pressure or Effort", headspace: "What it learned · Pressure or Effort", blob: "About the blob · Pressure or Effort" }[r];
+      document.title = { welcome: "Pressure or Effort", setup: "Meet the blob · Pressure or Effort", today: "The blob's day · Pressure or Effort", review: "Tonight · Pressure or Effort", stories: "Its stories · Pressure or Effort", headspace: "What it learned · Pressure or Effort", blob: "About the blob · Pressure or Effort" }[r];
     } else if (fid) {
       var el = app.querySelector('[data-fid="' + fid + '"]');
       if (el) el.focus({ preventScroll: true });
@@ -707,6 +734,7 @@
     else if (act === "next") { var n = dayBy(S.day).rises.length; S.mi = (Math.min(S.mi, n - 1) + 1) % n; commit(); }
     else if (act === "mi") { S.mi = +v; commit(); }
     else if (act === "sugg") { S.sugg[key] = S.sugg[key] === v ? undefined : v; commit(); }
+    else if (act === "fb") { var f = (S.fb[key] = S.fb[key] || {}); f.verdict = f.verdict === v ? undefined : v; commit(); }
     else if (act === "goday") { S.day = v; S.mi = 0; save(); location.hash = "#today"; }
     else if (act === "mark") toast("Marked. The blob will ask you about it tonight.");
   });
@@ -722,6 +750,13 @@
     ev.preventDefault();
     next.focus();
     next.click();
+  });
+
+  document.addEventListener("input", function (ev) {
+    var i = ev.target.getAttribute && ev.target.getAttribute("data-note");
+    if (i == null) return;
+    (S.fb[i] = S.fb[i] || {}).note = ev.target.value;
+    save();
   });
 
   document.addEventListener("change", function (ev) {
