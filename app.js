@@ -281,10 +281,10 @@
     return '<div class="wrap"><div class="two">' +
       '<div><h1>This blob shares your heartbeat. It doesn\'t know what it feels.</h1>' +
       '<p style="font-size:19px">Whenever your heart races, the blob\'s does too. It can\'t tell worry from a long shift. You can. Help it understand, and over time it will learn how your body and your headspace connect, and find small ways to look after you both.</p>' +
-      '<div class="btns" style="margin:24px 0 20px"><button class="btn primary" data-act="setup" data-v="0" data-fid="w1">Meet the blob</button>' +
+      '<div class="btns" style="margin:24px 0 20px"><button class="btn primary" data-act="setup" data-v="0" data-fid="w1" data-tour="w-start">Meet the blob</button>' +
       '<a class="btn ghost" href="#headspace">See its two weeks with Neel</a></div>' +
       '<p class="small">' + (DATA.synthetic ? "Shown with made-up heart rate and steps from 19 October to 1 November, and example answers." : "Shown with Neel\'s real Fitbit Air heart rate and steps from 19 October to 1 November, and example answers.") + "</p></div>" +
-      '<div class="panel" style="min-height:440px"><div>' + blob(1, 3.6, "The blob, round and waiting") + "<p>No face. It's waiting for you to help it feel.</p></div></div>" +
+      '<div class="panel" style="min-height:440px" data-tour="w-blob"><div>' + blob(1, 3.6, "The blob, round and waiting") + "<p>No face. It's waiting for you to help it feel.</p></div></div>" +
       "</div></div>";
   }
 
@@ -312,19 +312,19 @@
     } else if (step === 1) {
       h += '<div class="head" style="max-width:720px"><h1>When the blob feels pressure, it flattens.</h1>' +
         "<p>It has no face to look worried with. The more pressure it feels, the flatter it gets. This is how you'll show the blob what it's feeling.</p></div>" +
-        '<div class="card" style="max-width:860px">' + scale("try", S.tryLevel, 1.6, "Try the flattening scale") + "</div>" +
+        '<div class="card" style="max-width:860px" data-tour="s-scale">' + scale("try", S.tryLevel, 1.6, "Try the flattening scale") + "</div>" +
         '<div class="btns" style="margin-top:24px"><button class="btn ghost" data-act="setup" data-v="0">Back</button>' +
         '<button class="btn primary" data-act="setup" data-v="2" data-fid="s1">Read the first story</button></div>';
     } else {
       var i = S.story, s = story(i), last = i === 7;
       h += '<div class="two" style="align-items:start"><div>' +
         '<p class="small">Story ' + (i + 1) + " of 8</p>" + scene(s.moving, s.blob) +
-        '<div class="story-card">' +
+        '<div class="story-card" data-tour="s-story">' +
         factorRow("due", s.due ? "The blob has an assessment due tomorrow." : "The blob has nothing due this week.") +
         factorRow("moving", s.moving ? "It has been on its feet for hours." : "It has been sitting at a desk for hours.") +
         factorRow("behind", s.behind ? "It's behind, and no one can help." : "It's on top of things.") +
         "</div></div><div>" +
-        '<div class="card"><h2>How much pressure does the blob feel?</h2>' + scale("sb:" + i, s.blob, 1, "How much pressure does the blob feel?") +
+        '<div class="card" data-tour="s-rate"><h2>How much pressure does the blob feel?</h2>' + scale("sb:" + i, s.blob, 1, "How much pressure does the blob feel?") +
         '<h3 style="margin-top:28px">And how much would you feel, in its place?</h3>' + scale("sy:" + i, s.you, 0.8, "And how much would you feel, in its place?") + "</div>" +
         '<div class="btns" style="margin-top:20px"><button class="btn ghost" data-act="story" data-v="-1">Back</button>' +
         '<button class="btn primary" data-act="story" data-v="1" data-fid="sn">' + (last ? "See what the blob learned" : "Next story") + "</button></div>" +
@@ -348,11 +348,11 @@
     var sug = suggestions().filter(function (l) { return S.sugg[l.id] !== "no"; })[0];
     var h = '<div class="wrap"><div class="head"><h1>' + longDate(d.date) + '</h1><p>The blob\'s calendar: ' + esc(d.context) + "</p></div>" +
       '<div class="grid"><div class="col">' +
-      '<section class="card"><h2>' + verdict(w) + "</h2>" + kindChips(d) +
+      '<section class="card" data-tour="t-chart"><h2>' + verdict(w) + "</h2>" + kindChips(d) +
       hrChart(d, 0, 1440, { label: "The blob's heart rate across " + longDate(d.date) + ", with steps and " + n + " moments when it raced" }) + legend() + "</section>" +
-      '<section class="card"><h2>This morning</h2><p>You guessed how much the day ahead would flatten the blob.</p>' +
+      '<section class="card" data-tour="t-guess"><h2>This morning</h2><p>You guessed how much the day ahead would flatten the blob.</p>' +
       scale("guess:" + d.date, guess(d), 1, "This morning's guess") + "</section></div>" +
-      '<div class="col"><section class="card"><div class="stats">' +
+      '<div class="col"><section class="card" data-tour="t-stats"><div class="stats">' +
       '<div class="stat"><b>' + Math.round(d.rhr) + "</b><span>Its resting heartbeat (bpm)</span></div>" +
       '<div class="stat"><b>' + d.steps.toLocaleString("en-AU") + "</b><span>Steps</span></div>" +
       '<div class="stat"><b>' + d.nRises + "</b><span>Times its heart raced (25+ bpm over resting)</span></div>" +
@@ -361,7 +361,7 @@
       h += '<section class="card yellow"><h3>The blob has an idea</h3><p style="font-size:18px;font-weight:500">' + esc(sug.title) + "</p>" +
         "<details><summary>Why the blob thinks this</summary><p>" + esc(sug.text) + "</p></details></section>";
     }
-    h += '<section class="card dark"><h3>Something just happened?</h3><p>Tap once. The blob will ask you about it tonight.</p>' +
+    h += '<section class="card dark" data-tour="t-mark"><h3>Something just happened?</h3><p>Tap once. The blob will ask you about it tonight.</p>' +
       '<button class="btn light" data-act="mark">Mark this moment</button></section>' +
       '<section class="card"><h3>Tonight with the blob</h3><p>' + n + " moment" + (n === 1 ? "" : "s") + " to talk through · about 2 minutes</p>" +
       '<a class="btn primary" href="#review">Talk them through</a></section>' +
@@ -404,7 +404,7 @@
     right += '<section class="card yellow"><h3>And how did the whole day leave the blob?</h3>' + scale("whole:" + d.date, w, 0.75, "And how did the whole day leave the blob?") + "</section>";
     var cmp = w > g ? "Heavier for the blob than you guessed." : w < g ? "Lighter for the blob than you guessed." : "About what you guessed for the blob.";
     var mt = match(d), mLab = { 1: "Not at all", 5: "Exactly" };
-    right += '<section class="card"><h3>The blob\'s ' + shortDate(d.date) + "</h3>" + (n ? dayMap(d) : "") +
+    right += '<section class="card" data-tour="r-map"><h3>The blob\'s ' + shortDate(d.date) + "</h3>" + (n ? dayMap(d) : "") +
       '<div class="cmp"><div>' + blob(g, 1, "Your guess " + g + " of 7") + "<br>Your guess " + g + "/7</div><div>" + blob(w, 1, "How it went " + w + " of 7") + "<br>How it went " + w + "/7</div></div>" +
       '<p style="text-align:center;font-weight:500">' + cmp + "</p>" +
       '<p style="margin-top:20px;font-weight:700">Next morning: does this feel right to you?</p>' +
@@ -420,7 +420,7 @@
         '<div class="col">' + right + "</div></div></div>";
     }
     var i = Math.min(S.mi, n - 1), r = d.rises[i], a = ans(d, i), k = mKey(d, i);
-    var left = '<section class="card"><h2>' + fmtTime(r.peakMin) + " · " + esc(r.situation) + "</h2>" +
+    var left = '<section class="card" data-tour="r-moment"><h2>' + fmtTime(r.peakMin) + " · " + esc(r.situation) + "</h2>" +
       scene(r.moving, a.cant ? 1 : a.pressure, r.moving ? "The blob on its feet" : "The blob at its desk") +
       '<p style="margin-top:18px;font-size:17px">' + momentStory(d, r) + "</p>" +
       '<div class="chips" style="margin-bottom:16px"><span class="chip"><i class="sw" style="background:' + (r.moving ? "var(--orange)" : "var(--plum)") + '"></i>' +
@@ -429,7 +429,7 @@
         w: 640, h: 220, sel: i, label: "Heart rate 90 minutes either side of " + fmtTime(r.peakMin),
         ticks: [-90, -45, 0, 45, 90].map(function (o) { return r.peakMin + o; }).filter(function (m) { return m >= 0 && m <= 1440; })
       }) + "</div></section>";
-    left += '<section class="card' + (a.cant ? " dim" : "") + '"><h2>Help the blob understand</h2><div class="qbody">' +
+    left += '<section class="card' + (a.cant ? " dim" : "") + '" data-tour="r-help"><h2>Help the blob understand</h2><div class="qbody">' +
       '<div class="qrow"><b>Did the blob have something due?</b>' + yesNo("mdue:" + k, a.due, "Did the blob have something due?") + "</div>" +
       '<div class="qrow"><b>Was it on top of things?</b>' + yesNo("mtop:" + k, a.onTop, "Was it on top of things?") + "</div>" +
       '<p style="margin:16px 0 8px;font-weight:700;color:var(--ink)">How much pressure was it feeling?</p>' +
@@ -474,7 +474,7 @@
     var h = '<div class="wrap"><div class="head"><h1>' + (sug.length ? "The blob feels pressure when it sits still." : "The blob is still getting to know you.") + "</h1>" +
       "<p>What the blob has learned from " + nDays + " days of your heartbeat, your steps and your help.</p></div>" +
       '<div class="grid"><div class="col">';
-    h += '<section class="card"><h2>Things the blob wants to try with you</h2>';
+    h += '<section class="card" data-tour="h-sugg"><h2>Things the blob wants to try with you</h2>';
     if (sug.length) {
       sug.forEach(function (l) {
         var v = S.sugg[l.id];
@@ -486,11 +486,11 @@
       h += "<p>The blob hasn't noticed enough yet. Its ideas will show up here.</p>";
     }
     h += '<p class="small" style="margin:12px 0 0">These are gentle ideas, not medical advice. The blob gets surer the more days it spends with you.</p></section>';
-    h += '<section class="card"><h2>What the blob has noticed</h2>' + ls.map(function (l) {
+    h += '<section class="card" data-tour="h-links"><h2>What the blob has noticed</h2>' + ls.map(function (l) {
       return '<div class="link-row"' + (l.r != null ? ' aria-label="' + esc(l.name + ". " + l.text + " Correlation of steps and the whole day: " + l.r.toFixed(2)) + '"' : "") + '><div><b>' + l.name + "</b><p>" + esc(l.text) + "</p></div>" +
         '<span class="chip' + (l.chip === "Starting to see it" ? " yellow" : "") + '">' + l.chip + "</span></div>";
     }).join("") + "</section>";
-    h += '<section class="card"><h2>Your guess vs how the day went</h2>' + guessChart() + "</section></div>";
+    h += '<section class="card" data-tour="h-guess"><h2>Your guess vs how the day went</h2>' + guessChart() + "</section></div>";
 
     // right column
     var situ = ["Sitting still, evening", "Sitting still, daytime", "Walking", "On its feet"], by = {};
@@ -526,7 +526,7 @@
     var gap = e.gap, x = f1(Math.abs(gap));
     var h = '<div class="wrap"' + (fromSetup ? ' style="padding-top:0"' : "") + '><div class="head"><h1>The blob is starting to understand.</h1>' +
       "<p>From the 8 stories you told it, this is what the blob now knows flattens it.</p></div>" +
-      '<div class="grid"><div class="col"><section class="card"><h2>What flattens the blob</h2><p class="small">How much flatter it gets, on the 1–7 scale</p>' +
+      '<div class="grid"><div class="col"><section class="card" data-tour="b-effects"><h2>What flattens the blob</h2><p class="small">How much flatter it gets, on the 1–7 scale</p>' +
       '<div role="img" aria-label="Effects: something due ' + signed(e.due) + ", being behind " + signed(e.behind) + ", being on its feet " + signed(e.moving) + '">' +
       row("Something due", e.due, "var(--plum)") + row("Being behind", e.behind, "var(--plum)") + row("Being on its feet", e.moving, "var(--orange)") + "</div></section>" +
       '<div class="btns">' +
@@ -536,10 +536,101 @@
       (Math.abs(e.moving) < 0.75
         ? "Being on its feet barely flattens the blob. So when its heart races during a busy shift, it now knows that's effort, not pressure."
         : "Being on its feet flattens the blob too, so it may still mix up tiredness and pressure. It will keep watching.") + "</p></section>" +
-      '<section class="card indigo"><h3>You and the blob</h3><p style="margin:0">In its place, you felt ' + x + " " + (gap >= 0 ? "less" : "more") + " than the blob on average. " +
+      '<section class="card indigo" data-tour="b-gap"><h3>You and the blob</h3><p style="margin:0">In its place, you felt ' + x + " " + (gap >= 0 ? "less" : "more") + " than the blob on average. " +
       (Math.abs(gap) >= 0.6 ? "That's a big gap. You might be going easier on yourself than on the blob." : "That's close, so the blob feels much like you would.") + "</p></section></div></div></div>";
     return h;
   }
+
+
+  // ---------- walkthrough ----------
+  var TOUR = [
+    { r: "welcome", t: "w-blob", h: "Meet the blob", b: "It shares your heartbeat, but it has no face and no feelings. When its heart races, it can't tell worry from a long shift." },
+    { r: "welcome", t: "w-start", h: "Start here", b: "Meet the blob teaches it with 8 short stories. It takes about 3 minutes." },
+    { r: "setup", step: 1, t: "s-scale", h: "The flattening scale", b: "The blob shows pressure by flattening. Every answer in the app uses this 1 to 7 scale." },
+    { r: "setup", step: 2, t: "s-story", h: "A story from its life", b: "Each story changes three things: whether something is due, whether it's behind, and whether it's on its feet." },
+    { r: "setup", step: 2, t: "s-rate", h: "Two answers per story", b: "You rate how flat the blob would feel, then how flat you would feel in its place." },
+    { r: "today", t: "t-chart", h: "The blob's day", b: "Heart rate across the whole day. Dots mark the moments its heart raced 25+ bpm over resting: orange while moving, plum while still. Bars along the bottom are steps." },
+    { r: "today", t: "t-guess", h: "This morning's guess", b: "Each morning you guess how much the day ahead will flatten the blob. Tonight you'll compare." },
+    { r: "today", t: "t-stats", h: "The day in numbers", b: "Resting heartbeat, steps, how many times its heart raced, and how flat the day left it." },
+    { r: "today", t: "t-mark", h: "Mark a moment", b: "If something happens during the day, one tap tells the blob to ask about it tonight." },
+    { r: "review", t: "r-moment", h: "Tonight with the blob", b: "Each moment its heart raced, told as a short story with the steps before it and a close-up of the heart rate." },
+    { r: "review", t: "r-help", h: "Help the blob understand", b: "Two quick questions and the scale. If you can't remember, the blob leaves that moment out." },
+    { r: "review", t: "r-map", h: "The day map", b: "Every moment placed by how much the blob was moving and how much pressure it felt: Pressure, Overload, Effort or Neither." },
+    { r: "headspace", t: "h-sugg", h: "What it learned", b: "Once the blob sees a pattern across enough days, it suggests a small way to look after you both." },
+    { r: "headspace", t: "h-links", h: "What it has noticed", b: "Four links between your body and your headspace. Each one shows how sure the blob is so far." },
+    { r: "headspace", t: "h-guess", h: "Your guess vs the day", b: "Open circles are your morning guess. Filled circles are how the day actually left the blob." },
+    { r: "blob", t: "b-effects", h: "About the blob", b: "From your 8 stories: how much each factor flattens the blob. If being on its feet barely matters, a busy shift reads as effort, not pressure." },
+    { r: "blob", t: "b-gap", h: "You and the blob", b: "How differently you'd feel in its place. A big gap might mean you go easier on yourself than on the blob." },
+    { r: null, t: "tour", h: "That's the tour", b: "You can come back to it any time from here." }
+  ];
+  var T = null;
+  function tourStart() {
+    T = { i: 0, hash: location.hash || "#welcome", step: S.step, story: S.story, day: S.day, mi: S.mi };
+    var d = dayBy(S.day);
+    if (!d.rises.length) {
+      for (var j = DAYS.length - 1; j >= 0; j--) if (DAYS[j].rises.length) { S.day = DAYS[j].date; S.mi = 0; break; }
+    }
+    document.getElementById("tour").hidden = false;
+    tourGo(0);
+  }
+  function tourEnd() {
+    if (!T) return;
+    S.step = T.step; S.story = T.story; S.day = T.day; S.mi = T.mi;
+    var back = T.hash;
+    T = null;
+    document.getElementById("tour").hidden = true;
+    document.getElementById("tour-spot").hidden = true;
+    if (location.hash !== back) location.hash = back; else { lastRoute = null; render(); }
+    document.getElementById("tour-btn").focus();
+  }
+  function tourGo(i) {
+    T.i = i;
+    var st = TOUR[i];
+    if (st.step != null) { S.step = st.step; if (st.step === 2) S.story = 0; }
+    if (st.r && location.hash !== "#" + st.r) location.hash = "#" + st.r;
+    else { lastRoute = null; render(); }
+  }
+  function tourPlace() {
+    if (!T) return;
+    var st = TOUR[T.i], box = document.getElementById("tour"), spot = document.getElementById("tour-spot");
+    box.querySelector(".tour-n").textContent = "Step " + (T.i + 1) + " of " + TOUR.length;
+    box.querySelector("h3").textContent = st.h;
+    box.querySelector("p:not(.tour-n)").textContent = st.b;
+    box.querySelector('[data-tour-act="back"]').disabled = T.i === 0;
+    box.querySelector('[data-tour-act="next"]').textContent = T.i === TOUR.length - 1 ? "Done" : "Next";
+    var el = st.t === "tour" ? document.getElementById("tour-btn") : document.querySelector('[data-tour="' + st.t + '"]');
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "instant" in document.documentElement.style ? "instant" : "auto" });
+      tourSpot();
+    } else spot.hidden = true;
+    box.querySelector('[data-tour-act="next"]').focus({ preventScroll: true });
+  }
+  function tourSpot() {
+    if (!T) return;
+    var st = TOUR[T.i], spot = document.getElementById("tour-spot");
+    var el = st.t === "tour" ? document.getElementById("tour-btn") : document.querySelector('[data-tour="' + st.t + '"]');
+    if (!el) { spot.hidden = true; return; }
+    var r = el.getBoundingClientRect(), pad = 6;
+    spot.hidden = false;
+    spot.style.top = (r.top - pad) + "px"; spot.style.left = (r.left - pad) + "px";
+    spot.style.width = (r.width + pad * 2) + "px"; spot.style.height = (r.height + pad * 2) + "px";
+    var radius = getComputedStyle(el).borderTopLeftRadius;
+    spot.style.borderRadius = "calc(" + (radius === "0px" ? "12px" : radius) + " + " + pad + "px)";
+  }
+  document.addEventListener("click", function (ev) {
+    if (ev.target.closest("#tour-btn")) { T ? tourEnd() : tourStart(); return; }
+    var b = ev.target.closest("[data-tour-act]");
+    if (!b || !T) return;
+    var a = b.getAttribute("data-tour-act");
+    if (a === "close") tourEnd();
+    else if (a === "back" && T.i > 0) tourGo(T.i - 1);
+    else if (a === "next") { if (T.i === TOUR.length - 1) tourEnd(); else tourGo(T.i + 1); }
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (T && ev.key === "Escape") tourEnd();
+  });
+  window.addEventListener("scroll", tourSpot, { passive: true });
+  window.addEventListener("resize", tourSpot);
 
   // ---------- routing + render ----------
   function route() {
@@ -570,6 +661,7 @@
       if (el) el.focus({ preventScroll: true });
     }
     lastRoute = r;
+    if (T) setTimeout(tourPlace, 0);
   }
   function commit() { save(); render(); }
 
@@ -596,7 +688,7 @@
 
   document.addEventListener("click", function (ev) {
     var el = ev.target.closest("[data-act]");
-    if (!el) return;
+    if (!el || T) return;
     var act = el.getAttribute("data-act"), v = el.getAttribute("data-v"), key = el.getAttribute("data-key");
     if (act === "set") { setValue(key, +v); commit(); }
     else if (act === "setup") {
