@@ -633,7 +633,7 @@
 
   // ---------- walkthrough ----------
   var TOUR = [
-    { r: "welcome", t: "w-blob", h: "Meet the blob", b: "It shares your heartbeat, but it has no face and no feelings. When its heart races, it can't tell worry from a long shift." },
+    { r: "welcome", t: "w-blob", h: "Meet the blob", b: "It's a blob. It doesn't understand how it feels. Can you help it understand how it feels?" },
     { r: "welcome", t: "w-start", h: "Start here", b: "Meet the blob teaches it with 8 short stories. It takes about 3 minutes." },
     { r: "setup", step: 1, t: "s-scale", h: "The flattening scale", b: "The blob shows pressure by flattening. Every answer in the app uses this 1 to 7 scale." },
     { r: "setup", step: 2, t: "s-story", h: "A story from its life", b: "Each story changes three things: whether something is due, whether it's behind, and whether it's on its feet." },
