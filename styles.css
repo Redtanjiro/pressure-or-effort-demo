@@ -2,6 +2,7 @@
   --bg: #f9f4f2; --card: #ffffff; --ink: #2d2c2b; --ink2: #44423f; --muted: #63605d; --line: #e2ded9;
   --blue: #0061ef; --yellow: #ffce00; --orange: #f47d31; --plum: #5f2b89; --indigo: #3b197f;
   --sky: #00a4ff; --pink: #ffa1cc; --night: #281466;
+  --a-ex: #f47d31; --a-walk: #12a37f; --a-feet: #d99a00; --a-work: #5f2b89; --a-relax: #9a86c8;
   --dark: #2d2c2b; --on-dark: #ffffff; --on-yellow: #2d2c2b;
   --plum-soft: rgba(95, 43, 137, 0.14); --pink-soft: rgba(255, 161, 204, 0.30);
   --orange-soft: rgba(244, 125, 49, 0.16); --yellow-soft: rgba(255, 206, 0, 0.45);
@@ -236,14 +237,19 @@ details p { margin-top: 8px; }
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 
-/* its stories */
-.story-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-@media (max-width: 900px) { .story-grid { grid-template-columns: 1fr; } }
-.story-tile .story-card { background: var(--bg); color: var(--ink); }
-.story-tile .story-card .factor + .factor { border-color: var(--line); }
-.fb-label { display: block; font-weight: 700; margin: 18px 0 8px; }
-.fb-note {
-  width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
-  border-radius: 8px; padding: 10px 12px; resize: vertical; min-height: 64px;
-}
 .pill[aria-checked="true"] .muted { color: inherit; opacity: 0.75; }
+
+/* about: practice vs real */
+.two-eff { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.two-eff h3 { margin: 8px 0 4px; }
+.two-eff .effect { grid-template-columns: 1fr 48px; }
+.two-eff .effect .axis { grid-column: 1 / -1; grid-row: 2; }
+@media (max-width: 700px) { .two-eff { grid-template-columns: 1fr; } }
+
+/* where the blob feels pressure */
+.act-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.act-blob { width: 40px; flex: none; display: flex; justify-content: center; align-items: flex-end; }
+.act-none { width: 34px; height: 20px; flex: none; border-radius: 999px; border: 1.5px dashed var(--line); }
+.act-row .grow { flex: 1; min-width: 0; }
+.act-row b { display: flex; align-items: center; gap: 6px; }
+.act-row .grow span { display: block; font-size: 14px; color: var(--muted); }
