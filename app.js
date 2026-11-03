@@ -4,13 +4,13 @@
   var DATA = window.POE_DATA;
   var DAYS = DATA.days;
   var KEY = "poe-live-v1";
-  var ROUTES = ["welcome", "setup", "today", "review", "stories", "headspace", "blob"];
+  var ROUTES = ["welcome", "setup", "today", "review", "headspace", "blob"];
 
   // ---------- state ----------
   var S = load();
   function blank() {
     return { done: false, step: 0, story: 0, tryLevel: 4, day: DAYS[DAYS.length - 1].date, mi: 0,
-      stories: {}, fb: {}, m: {}, whole: {}, match: {}, sugg: {} };
+      stories: {}, answers: {}, marks: {}, whole: {}, match: {}, sugg: {} };
   }
   function load() {
     var s = blank();
@@ -28,18 +28,57 @@
     try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
   }
 
-  // ---------- effective answers (user answer over example answer) ----------
+  // ---------- moments + answers ----------
+  // One list of moments per day (marked first, then the biggest rises, max 4) and one answer object per moment.
   function dayBy(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i]; return null; }
-  function mKey(d, i) { return d.date + "#" + i; }
-  function ans(d, i) {
-    var r = d.rises[i], u = S.m[mKey(d, i)] || {};
+  var ACTS = ["Exercising", "Walking somewhere", "On its feet, working", "Sitting, working", "Sitting, relaxing"];
+  var MOVING = { "Exercising": true, "Walking somewhere": true, "On its feet, working": true };
+  var ACT_COLOR = { "Exercising": "var(--a-ex)", "Walking somewhere": "var(--a-walk)", "On its feet, working": "var(--a-feet)", "Sitting, working": "var(--a-work)", "Sitting, relaxing": "var(--a-relax)" };
+  function fitbitGuess(d, m) {
+    if (m.steps10 > 1000 && m.bpm >= d.rhr + 60) return "Exercising";
+    if (m.steps10 > 250) return "Walking somewhere";
+    if (m.steps10 > 60) return "On its feet, working";
+    return m.peakMin >= 480 && m.peakMin < 1140 ? "Sitting, working" : "Sitting, relaxing";
+  }
+  function markedMoment(d, min) {
+    var s = Math.min(287, Math.floor(min / 5)), p = d.series[s], q = d.series[Math.max(0, s - 1)];
+    return { peakMin: s * 5, bpm: Math.round(p[1]), mins: 5, steps10: p[2] + (s ? q[2] : 0), rise: null, marked: true };
+  }
+  function moments(d) {
+    var list = d.rises.map(function (r) { return { peakMin: r.peakMin, bpm: r.bpm, mins: r.mins, steps10: r.steps10, rise: r, marked: false }; });
+    var extra = [];
+    (S.marks[d.date] || []).forEach(function (min) {
+      var hit = list.filter(function (m) { return Math.abs(m.peakMin - min) <= 30; })[0];
+      if (hit) hit.marked = true;
+      else if (!extra.some(function (m) { return Math.abs(m.peakMin - min) < 5; })) extra.push(markedMoment(d, min));
+    });
+    var marked = list.filter(function (m) { return m.marked; }).concat(extra).sort(function (a, b) { return a.peakMin - b.peakMin; });
+    return marked.concat(list.filter(function (m) { return !m.marked; })).slice(0, 4);
+  }
+  function aKey(d, m) { return d.date + "|" + m.peakMin; }
+  function findMoment(key) {
+    var p = key.split("|"), d = dayBy(p[0]);
+    return { d: d, m: moments(d).filter(function (m) { return m.peakMin === +p[1]; })[0] };
+  }
+  function ans(d, m) {
+    var u = S.answers[aKey(d, m)] || {}, ex = m.rise ? m.rise.answer : {};
+    var guess = fitbitGuess(d, m), activity = u.activity || guess;
     return {
-      due: "due" in u ? u.due : r.answer.due,
-      onTop: "onTop" in u ? u.onTop : r.answer.onTop,
-      pressure: "pressure" in u ? u.pressure : r.answer.pressure,
-      cant: "cant" in u ? u.cant : r.cantRemember,
-      act: u.act
+      activity: activity, fitbitGuess: guess, corrected: activity !== guess,
+      due: "due" in u ? u.due : ex.due,
+      onTop: "onTop" in u ? u.onTop : ex.onTop,
+      pressure: "pressure" in u ? u.pressure : ex.pressure,
+      cantRemember: "cantRemember" in u ? u.cantRemember : !!(m.rise && m.rise.cantRemember),
+      moving: !!MOVING[activity]
     };
+  }
+  function setAns(key, patch) {
+    var f = findMoment(key);
+    if (!f.m) return;
+    var a = ans(f.d, f.m);
+    for (var k in patch) a[k] = patch[k];
+    a.corrected = a.activity !== a.fitbitGuess;
+    S.answers[key] = { activity: a.activity, fitbitGuess: a.fitbitGuess, corrected: a.corrected, due: a.due, onTop: a.onTop, pressure: a.pressure, cantRemember: a.cantRemember };
   }
   function whole(d) { return S.whole[d.date] != null ? S.whole[d.date] : d.whole; }
   function match(d) { return S.match[d.date] != null ? S.match[d.date] : d.match; }
@@ -55,9 +94,9 @@
   var KIND_COLOR = { Overload: "var(--pink)", Effort: "var(--orange)", Pressure: "var(--plum)", Neither: "var(--line)" };
   function usable(d) {
     var out = [];
-    d.rises.forEach(function (r, i) {
-      var a = ans(d, i);
-      if (!a.cant && a.pressure != null) out.push({ r: r, a: a, i: i });
+    moments(d).forEach(function (m) {
+      var a = ans(d, m);
+      if (!a.cantRemember && a.pressure != null) out.push({ m: m, a: a });
     });
     return out;
   }
@@ -189,15 +228,16 @@
     });
     // moments
     var lastX = -1e9, flip = false;
-    d.rises.forEach(function (r, i) {
-      if (r.peakMin < from || r.peakMin > to) return;
-      var cx = x(r.peakMin), cy = y(r.bpm), c = r.moving ? "var(--orange)" : "var(--plum)";
+    moments(d).forEach(function (m, i) {
+      if (m.peakMin < from || m.peakMin > to) return;
+      var cx = x(m.peakMin), cy = y(m.bpm), c = ACT_COLOR[ans(d, m).activity];
       var sel = opts.sel === i;
       flip = cx - lastX < 60 ? !flip : false;
       lastX = cx;
       var ly = flip ? cy + 26 : cy - 14;
       g += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (sel ? 9 : 7) + '" fill="' + c + '" stroke="var(--card)" stroke-width="3"/>' +
-        '<text x="' + cx + '" y="' + ly + '" text-anchor="middle" style="fill:var(--ink);font-weight:700;paint-order:stroke;stroke:var(--card);stroke-width:4px">' + fmtTime(r.peakMin) + "</text>";
+        (m.marked ? '<circle cx="' + cx + '" cy="' + cy + '" r="' + (sel ? 13 : 11) + '" fill="none" stroke="var(--ink)" stroke-width="1.5"/>' : "") +
+        '<text x="' + cx + '" y="' + ly + '" text-anchor="middle" style="fill:var(--ink);font-weight:700;paint-order:stroke;stroke:var(--card);stroke-width:4px">' + fmtTime(m.peakMin) + "</text>";
     });
     // ticks
     var ticks = opts.ticks || [0, 360, 720, 1080, 1440];
@@ -207,17 +247,16 @@
     });
     return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + esc(opts.label) + '">' + g + "</svg>";
   }
-  function legend() {
+  function legend(d) {
     return '<div class="legend"><span><i class="lg-bar"></i>Steps</span>' +
-      '<span><i class="sw" style="background:var(--orange)"></i>Heart raced while moving</span>' +
-      '<span><i class="sw" style="background:var(--plum)"></i>Heart raced while still</span>' +
-      '<span><i class="lg-dash"></i>Missing from the export, filled from a usual day</span></div>';
+      ACTS.map(function (a) { return '<span><i class="sw" style="background:' + ACT_COLOR[a] + '"></i>' + a + "</span>"; }).join("") +
+      (d.filled > 0 ? '<span><i class="lg-dash"></i>Missing from the export, filled from a usual day</span>' : "") + "</div>";
   }
 
   // ---------- learning ----------
   function links() {
     var still = [], moving = [];
-    DAYS.forEach(function (d) { usable(d).forEach(function (u) { (u.r.moving ? moving : still).push(u.a.pressure); }); });
+    DAYS.forEach(function (d) { usable(d).forEach(function (u) { (u.a.moving ? moving : still).push(u.a.pressure); }); });
     var l1 = { diff: mean(still) - mean(moving), n: still.length + moving.length, thr: 1,
       name: "Sitting still vs moving",
       text: "When its heart raced while it sat still, you said it felt " + f1(mean(still)) + "/7. When it raced while moving, " + f1(mean(moving)) + "/7." };
@@ -242,7 +281,7 @@
 
     var titles = [
       "Before a long sit at the desk tonight, let's move for 10 minutes first.",
-      "On days when something's due, let's fit in a walk, not just desk time.",
+      "Quieter days leave the blob flatter. Let's get a walk in before the evening.",
       "After a heavy day, let's start the next one gently. Your heart is still catching up."
     ];
     return [l1, l2, l4].map(function (l, i) {
@@ -268,6 +307,18 @@
     return { due: eff("due"), behind: eff("behind"), moving: eff("moving"),
       gap: mean(st.map(function (s) { return s.blob - s.you; })) };
   }
+  function realEffects() {
+    var all = [];
+    DAYS.forEach(function (d) { usable(d).forEach(function (u) { all.push(u.a); }); });
+    function diff(yes, no) {
+      var a = all.filter(yes).map(function (x) { return x.pressure; }), b = all.filter(no).map(function (x) { return x.pressure; });
+      return a.length && b.length ? mean(a) - mean(b) : 0;
+    }
+    return { n: all.length,
+      due: diff(function (x) { return x.due === true; }, function (x) { return x.due === false; }),
+      behind: diff(function (x) { return x.onTop === false; }, function (x) { return x.onTop === true; }),
+      moving: diff(function (x) { return x.moving; }, function (x) { return !x.moving; }) };
+  }
 
   // ---------- views ----------
   function viewWelcome() {
@@ -276,7 +327,7 @@
       '<p style="font-size:19px">Whenever your heart races, the blob\'s does too. It can\'t tell worry from a long shift. You can. Help it understand, and over time it will learn how your body and your headspace connect, and find small ways to look after you both.</p>' +
       '<div class="btns" style="margin:24px 0 20px"><button class="btn primary" data-act="setup" data-v="0" data-fid="w1" data-tour="w-start">Meet the blob</button>' +
       '<a class="btn ghost" href="#headspace">See its two weeks with Neel</a></div>' +
-      '<p class="small">' + (DATA.synthetic ? "Shown with made-up heart rate and steps from 19 October to 1 November, and example answers." : "Shown with Neel\'s real Fitbit Air heart rate and steps from 19 October to 1 November, and example answers.") + "</p></div>" +
+      '<p class="small">' + (DATA.synthetic ? "Shown with a made-up fortnight modelled on a Fitbit Air, and example answers." : "Shown with Neel\'s real Fitbit Air heart rate and steps from 19 October to 1 November, and example answers.") + "</p></div>" +
       '<div class="panel" style="min-height:440px" data-tour="w-blob"><div>' + blob(1, 3.6, "The blob, round and waiting") + "<p>No face. It's waiting for you to help it feel.</p></div></div>" +
       "</div></div>";
   }
@@ -297,11 +348,11 @@
     if (step === 0) {
       h += '<div class="two"><div class="panel"><div>' + blob(1, 3, "The blob") + "<p>No face. No feelings. Yet.</p></div></div>" +
         '<div><h1>Meet the blob.</h1><p style="font-size:18px">The blob doesn\'t know how to feel. It\'s a blob.</p><h2>Will you help it?</h2>' +
-        '<div class="card" style="margin:20px 0"><h3>First, a few stories from the blob\'s life</h3>' +
+        '<div class="card" style="margin:20px 0"><h3>Before your Fitbit has anything to show, practise with a few stories from a blob\'s life.</h3>' +
         factorRow("due", "Sometimes something is due", "An assessment, an exam, a deadline") +
         factorRow("behind", "Sometimes it's on top of things, sometimes it's behind", "Whether it has time and help") +
         factorRow("moving", "Sometimes it sits still, sometimes it's on its feet", "Later, your Fitbit tells it which") +
-        '</div><div class="btns"><button class="btn primary" data-act="setup" data-v="1" data-fid="s0">Help the blob</button><span class="small">8 short stories · about 3 minutes</span></div></div></div>';
+        '</div><div class="btns"><button class="btn primary" data-act="setup" data-v="1" data-fid="s0">Help the blob</button><span class="small">8 practice stories · about 3 minutes</span></div></div></div>';
     } else if (step === 1) {
       h += '<div class="head" style="max-width:720px"><h1>When the blob feels pressure, it flattens.</h1>' +
         "<p>It has no face to look worried with. The more pressure it feels, the flatter it gets. This is how you'll show the blob what it's feeling.</p></div>" +
@@ -311,7 +362,7 @@
     } else {
       var i = S.story, s = story(i), last = i === 7;
       h += '<div class="two" style="align-items:start"><div>' +
-        '<p class="small">Story ' + (i + 1) + " of 8</p>" + scene(s.moving, s.blob) +
+        '<p class="small">Practice story ' + (i + 1) + " of 8</p>" + scene(s.moving, s.blob) +
         '<div class="story-card" data-tour="s-story">' +
         factorRow("due", s.due ? "The blob has an assessment due tomorrow." : "The blob has nothing due this week.") +
         factorRow("moving", s.moving ? "It has been on its feet for hours." : "It has been sitting at a desk for hours.") +
@@ -329,7 +380,7 @@
   function verdict(w) { return w >= 5 ? "A heavy day for the blob" : w >= 3 ? "A mixed day for the blob" : "A light day for the blob"; }
   function kindChips(d) {
     var c = { Overload: 0, Effort: 0, Pressure: 0, Neither: 0 };
-    usable(d).forEach(function (u) { c[kind(u.r.moving, u.a.pressure)]++; });
+    usable(d).forEach(function (u) { c[kind(u.a.moving, u.a.pressure)]++; });
     var out = Object.keys(c).filter(function (k) { return c[k]; }).map(function (k) {
       return '<span class="chip"><i class="sw" style="background:' + KIND_COLOR[k] + '"></i>' + c[k] + " " + k + "</span>";
     });
@@ -337,16 +388,17 @@
   }
 
   function viewToday() {
-    var d = dayBy(S.day), w = whole(d), n = d.rises.length;
+    var d = dayBy(S.day), w = whole(d), ms = moments(d), n = ms.length;
+    var asked = ms.filter(function (m) { return m.rise; }).length;
     var sug = suggestions().filter(function (l) { return S.sugg[l.id] !== "no"; })[0];
     var h = '<div class="wrap"><div class="head"><h1>' + longDate(d.date) + '</h1><p>The blob\'s calendar: ' + esc(d.context) + "</p></div>" +
       '<div class="grid"><div class="col">' +
       '<section class="card" data-tour="t-chart"><h2>' + verdict(w) + "</h2>" + kindChips(d) +
-      hrChart(d, 0, 1440, { label: "The blob's heart rate across " + longDate(d.date) + ", with steps and " + n + " moments when it raced" }) + legend() + "</section></div>" +
+      hrChart(d, 0, 1440, { label: "The blob's heart rate across " + longDate(d.date) + ", with steps and " + n + " moments to talk through" }) + legend(d) + "</section></div>" +
       '<div class="col"><section class="card" data-tour="t-stats"><div class="stats">' +
       '<div class="stat"><b>' + Math.round(d.rhr) + "</b><span>Its resting heartbeat (bpm)</span></div>" +
       '<div class="stat"><b>' + d.steps.toLocaleString("en-AU") + "</b><span>Steps</span></div>" +
-      '<div class="stat"><b>' + d.nRises + "</b><span>Times its heart raced (25+ bpm over resting)</span></div>" +
+      '<div class="stat"><b>' + d.nRises + "</b><span>Times its heart raced</span></div>" +
       '<div class="stat"><b>' + w + "/7</b><span>How flat the day left it</span></div></div></section>";
     if (sug) {
       h += '<section class="card yellow"><h3>The blob has an idea</h3><p style="font-size:18px;font-weight:500">' + esc(sug.title) + "</p>" +
@@ -355,21 +407,17 @@
     h += '<section class="card dark" data-tour="t-mark"><h3>Something just happened?</h3><p>Tap once. The blob will ask you about it tonight.</p>' +
       '<button class="btn light" data-act="mark">Mark this moment</button></section>' +
       '<section class="card"><h3>Tonight with the blob</h3><p>' + n + " moment" + (n === 1 ? "" : "s") + " to talk through · about 2 minutes</p>" +
+      (d.nRises > asked && asked ? '<p class="small">The blob will ask you about the biggest ' + asked + " tonight.</p>" : "") +
       '<a class="btn primary" href="#review">Talk them through</a></section>' +
       "</div></div></div>";
     return h;
   }
 
-  function momentStory(d, r) {
-    return "At " + fmtTime(r.peakMin) + " the blob's heart raced to " + r.bpm + " bpm, " + Math.round(r.bpm - d.rhr) + " above its resting beat. " +
-      "In the 10 minutes before, it had taken " + r.steps10 + " steps, so it " + (r.moving ? "was on the move" : "had barely moved") + ". " +
-      "It lasted " + duration(r.mins) + ", and the blob didn't know what it was feeling.";
-  }
-
   function dayMap(d) {
     var S0 = 300, P = 30, Z = S0 - P * 2;
     var xs = function (v) { return P + v * Z; }, ys = function (v) { return P + (1 - v) * Z; };
-    var mx = 250 / 800, my = 0.5;
+    var sx = function (steps) { return Math.sqrt(Math.min(1, steps / 1200)); };
+    var mx = sx(60), my = 0.5;
     var g = '<rect x="' + P + '" y="' + P + '" width="' + (mx * Z) + '" height="' + (my * Z) + '" fill="var(--plum-soft)"/>' +
       '<rect x="' + xs(mx) + '" y="' + P + '" width="' + ((1 - mx) * Z) + '" height="' + (my * Z) + '" fill="var(--pink-soft)"/>' +
       '<rect x="' + xs(mx) + '" y="' + ys(my) + '" width="' + ((1 - mx) * Z) + '" height="' + (my * Z) + '" fill="var(--orange-soft)"/>' +
@@ -381,16 +429,22 @@
       '<text x="' + (S0 / 2) + '" y="' + (S0 - 8) + '" text-anchor="middle">How much it was moving →</text>' +
       '<text x="12" y="' + (S0 / 2) + '" text-anchor="middle" transform="rotate(-90 12 ' + (S0 / 2) + ')">How much pressure it felt →</text>';
     usable(d).forEach(function (u) {
-      var cx = xs(Math.min(1, u.r.steps10 / 800)), cy = ys((u.a.pressure - 1) / 6);
-      g += '<circle cx="' + cx + '" cy="' + cy + '" r="7" fill="' + (u.r.moving ? "var(--orange)" : "var(--plum)") + '" stroke="var(--card)" stroke-width="2.5"/>' +
-        '<text x="' + cx + '" y="' + (cy - 11) + '" text-anchor="middle" style="fill:var(--ink)">' + fmtTime(u.r.peakMin) + "</text>";
+      // the final label decides the side; steps place it within that side
+      var v = sx(u.m.steps10);
+      if (u.a.moving && v <= mx) v = mx + 0.06;
+      if (!u.a.moving && v > mx) v = mx - 0.06;
+      var cx = xs(Math.max(0.03, Math.min(0.97, v))), cy = ys((u.a.pressure - 1) / 6);
+      g += '<circle cx="' + cx + '" cy="' + cy + '" r="7" fill="' + ACT_COLOR[u.a.activity] + '" stroke="var(--card)" stroke-width="2.5"/>' +
+        '<text x="' + cx + '" y="' + (cy - 11) + '" text-anchor="middle" style="fill:var(--ink)">' + fmtTime(u.m.peakMin) + "</text>";
     });
-    return '<svg class="chart" viewBox="0 0 ' + S0 + " " + S0 + '" role="img" aria-label="Day map of ' + shortDate(d.date) + ': each moment placed by how much the blob was moving and how much pressure it felt">' + g + "</svg>";
+    return '<svg class="chart" viewBox="0 0 ' + S0 + " " + S0 + '" role="img" aria-label="Day map of ' + shortDate(d.date) + ': each moment placed by how much the blob was moving and how much pressure it felt">' + g + "</svg>" +
+      '<div class="legend">' + ACTS.map(function (a) { return '<span><i class="sw" style="background:' + ACT_COLOR[a] + '"></i>' + a + "</span>"; }).join("") + "</div>";
   }
 
   function viewReview() {
-    var d = dayBy(S.day), n = d.rises.length;
-    var h = '<div class="wrap"><div class="head"><h1>Tonight with the blob</h1><p>' + longDate(d.date) + " · " + n + " moment" + (n === 1 ? "" : "s") + " when its heart raced</p></div>";
+    var d = dayBy(S.day), ms = moments(d), n = ms.length;
+    var h = '<div class="wrap"><div class="head"><h1>Tonight with the blob</h1><p>' + longDate(d.date) + " · " + n + " moment" + (n === 1 ? "" : "s") + " to talk through</p>" +
+      (n ? '<p class="small">Written from what the Fitbit saw. If the blob got it wrong, tell it what it was really doing.</p>' : "") + "</div>";
     var w = whole(d), right = "";
     right += '<section class="card yellow"><h3>And how did the whole day leave the blob?</h3>' + scale("whole:" + d.date, w, 0.75, "And how did the whole day leave the blob?") + "</section>";
     var mt = match(d), mLab = { 1: "Not at all", 5: "Exactly" };
@@ -408,31 +462,34 @@
         "<h2>A calm day for the blob</h2><p>Its heart stayed close to resting all day. Nothing to talk through tonight.</p></section></div>" +
         '<div class="col">' + right + "</div></div></div>";
     }
-    var i = Math.min(S.mi, n - 1), r = d.rises[i], a = ans(d, i), k = mKey(d, i);
-    var left = '<section class="card" data-tour="r-moment"><h2>' + fmtTime(r.peakMin) + " · " + esc(r.situation) + "</h2>" +
-      scene(r.moving, a.cant ? 1 : a.pressure, r.moving ? "The blob on its feet" : "The blob at its desk") +
-      '<p style="margin-top:18px;font-size:17px">' + momentStory(d, r) + "</p>" +
-      '<div class="chips" style="margin-bottom:16px"><span class="chip"><i class="sw" style="background:' + (r.moving ? "var(--orange)" : "var(--plum)") + '"></i>' +
-      (r.moving ? "On the move" : "Barely moving") + '</span><span class="chip">' + r.steps10 + ' steps</span><span class="chip">' + r.bpm + " bpm</span>" +
-      '<span class="chip">' + (a.act ? "You said: " + ACT[a.act] : "Fitbit's guess: " + ACT[guessActivity(d, r)]) + "</span></div>" +
-      '<div class="inner" style="padding:12px">' + hrChart(d, Math.max(0, r.peakMin - 90), Math.min(1440, r.peakMin + 90), {
-        w: 640, h: 220, sel: i, label: "Heart rate 90 minutes either side of " + fmtTime(r.peakMin),
-        ticks: [-90, -45, 0, 45, 90].map(function (o) { return r.peakMin + o; }).filter(function (m) { return m >= 0 && m <= 1440; })
+    var i = Math.min(S.mi, n - 1), m = ms[i], a = ans(d, m), k = aKey(d, m);
+    var left = '<section class="card" data-tour="r-moment"><h2>' + fmtTime(m.peakMin) + " · " + esc(a.activity) + "</h2>" +
+      (m.marked ? '<div class="chips" style="margin-bottom:12px"><span class="chip yellow">You marked this</span></div>' : "") +
+      scene(a.moving, a.cantRemember ? 1 : a.pressure, a.activity) +
+      '<p style="margin-top:18px;font-size:17px">' + esc(activityStory(d, m, a.activity)) + "</p>" +
+      '<div class="inner" style="padding:12px">' + hrChart(d, Math.max(0, m.peakMin - 90), Math.min(1440, m.peakMin + 90), {
+        w: 640, h: 220, sel: i, label: "Heart rate 90 minutes either side of " + fmtTime(m.peakMin),
+        ticks: [-90, -45, 0, 45, 90].map(function (o) { return m.peakMin + o; }).filter(function (x) { return x >= 0 && x <= 1440; })
       }) + "</div></section>";
-    left += '<section class="card' + (a.cant ? " dim" : "") + '" data-tour="r-help"><h2>Help the blob understand</h2><div class="qbody">' +
-      '<div class="qrow"><b>Did the blob have something due?</b>' + yesNo("mdue:" + k, a.due, "Did the blob have something due?") + "</div>" +
+    left += '<section class="card' + (a.cantRemember ? " dim" : "") + '" data-tour="r-help"><h2>Help the blob understand</h2><div class="qbody">' +
+      '<p style="margin:0 0 8px;font-weight:700;color:var(--ink)">What was the blob doing?</p>' +
+      '<div class="pills" role="radiogroup" aria-label="What was the blob doing?">' + ACTS.map(function (id) {
+        return '<button type="button" class="pill" role="radio" aria-checked="' + (a.activity === id) + '" data-act="act" data-key="' + k + '" data-v="' + id + '" data-fid="act' + id + '">' +
+          id + (id === a.fitbitGuess ? ' <span class="muted">· Fitbit\'s guess</span>' : "") + "</button>";
+      }).join("") + "</div>" +
+      '<div class="qrow" style="margin-top:12px"><b>Did the blob have something due?</b>' + yesNo("mdue:" + k, a.due, "Did the blob have something due?") + "</div>" +
       '<div class="qrow"><b>Was it on top of things?</b>' + yesNo("mtop:" + k, a.onTop, "Was it on top of things?") + "</div>" +
       '<p style="margin:16px 0 8px;font-weight:700;color:var(--ink)">How much pressure was it feeling?</p>' +
-      scale("mp:" + k, a.cant ? null : a.pressure, 0.9, "How much pressure was it feeling?") + "</div>" +
-      '<div class="btns" style="margin-top:20px"><button class="btn ghost" aria-pressed="' + a.cant + '" data-act="cant" data-key="' + k + '" data-fid="cant">' +
-      (a.cant ? "You can't remember this one" : "I can't remember") + "</button>" +
+      scale("mp:" + k, a.cantRemember ? null : a.pressure, 0.9, "How much pressure was it feeling?") + "</div>" +
+      '<div class="btns" style="margin-top:20px"><button class="btn ghost" aria-pressed="' + a.cantRemember + '" data-act="cant" data-key="' + k + '" data-fid="cant">' +
+      (a.cantRemember ? "You can't remember this one" : "I can't remember") + "</button>" +
       '<button class="btn primary" data-act="next" data-fid="next">' + (i === n - 1 ? "Back to the first" : "Next moment") + "</button></div></section>";
 
-    var list = '<section class="card"><h3>Today\'s moments</h3><ul class="list">' + d.rises.map(function (rr, j) {
-      var aa = ans(d, j), status = aa.cant ? "Can't remember" : aa.pressure != null ? aa.pressure + " of 7" : "Not yet";
+    var list = '<section class="card"><h3>Today\'s moments</h3><ul class="list">' + ms.map(function (mm, j) {
+      var aa = ans(d, mm), status = aa.cantRemember ? "Can't remember" : aa.pressure != null ? aa.pressure + " of 7" : "Not yet";
       return '<li><button class="row-btn" data-act="mi" data-v="' + j + '" aria-current="' + (j === i) + '" data-fid="mi' + j + '">' +
-        '<i class="sw" style="background:' + (rr.moving ? "var(--orange)" : "var(--plum)") + '"></i>' +
-        '<div class="grow"><b>' + fmtTime(rr.peakMin) + "</b><span>" + esc(rr.situation) + " · " + rr.bpm + " bpm</span></div>" +
+        '<i class="sw" style="background:' + ACT_COLOR[aa.activity] + '"></i>' +
+        '<div class="grow"><b>' + fmtTime(mm.peakMin) + (mm.marked ? " · You marked this" : "") + "</b><span>" + esc(aa.activity) + " · " + mm.bpm + " bpm</span></div>" +
         '<span class="small">' + status + "</span></button></li>";
     }).join("") + "</ul></section>";
 
@@ -464,21 +521,17 @@
     h += "</div>";
 
     // right column
-    var situ = ["Sitting still, evening", "Sitting still, daytime", "Walking", "On its feet"], by = {};
-    situ.forEach(function (s) { by[s] = { Pressure: 0, Neither: 0, Effort: 0, Overload: 0, n: 0 }; });
-    DAYS.forEach(function (d) { usable(d).forEach(function (u) { var b = by[u.r.situation]; b[kind(u.r.moving, u.a.pressure)]++; b.n++; }); });
-    var maxN = Math.max.apply(null, situ.map(function (s) { return by[s].n; }).concat([1]));
+    var by = {};
+    ACTS.forEach(function (a) { by[a] = []; });
+    DAYS.forEach(function (d) { usable(d).forEach(function (u) { by[u.a.activity].push(u.a.pressure); }); });
     h += '<div class="col"><section class="card"><h3>How well the blob knows you</h3><div class="bar-track" role="progressbar" aria-label="Days together" aria-valuemin="0" aria-valuemax="28" aria-valuenow="' + nDays + '"><span style="width:' + (nDays / 28 * 100) + '%"></span></div>' +
       '<p style="margin:12px 0 0">' + nDays + " of 28 days together. What it has noticed so far are early signs. It will check them again after four weeks.</p></section>";
-    h += '<section class="card"><h3>Where the blob feels pressure</h3><div role="img" aria-label="Moments by situation, coloured by kind">' + situ.map(function (s) {
-      var b = by[s];
-      return '<div style="margin:14px 0"><div style="display:flex;justify-content:space-between;font-size:14px"><span>' + s + '</span><span class="muted">' + b.n + '</span></div>' +
-        '<div class="stack" style="width:' + Math.max(4, b.n / maxN * 100) + '%">' + ["Pressure", "Overload", "Effort", "Neither"].map(function (k) {
-          return b[k] ? '<span style="width:' + (b[k] / b.n * 100) + "%;background:" + KIND_COLOR[k] + '"></span>' : "";
-        }).join("") + "</div></div>";
-    }).join("") + '</div><div class="legend">' + ["Pressure", "Overload", "Effort", "Neither"].map(function (k) {
-      return '<span><i class="sw" style="background:' + KIND_COLOR[k] + '"></i>' + k + "</span>";
-    }).join("") + "</div></section>";
+    h += '<section class="card"><h3>Where the blob feels pressure</h3><ul class="list">' + ACTS.map(function (a) {
+      var v = by[a], avg = mean(v);
+      return '<li class="act-row">' + ('<span class="act-blob">' + (v.length ? blob(Math.round(avg), 0.45, a + ": " + f1(avg) + " of 7") : '<span class="act-none"></span>') + "</span>") +
+        '<div class="grow"><b><i class="sw" style="background:' + ACT_COLOR[a] + '"></i> ' + a + "</b><span>" +
+        (v.length ? f1(avg) + "/7 · " + v.length + " moment" + (v.length === 1 ? "" : "s") : "No moments yet") + "</span></div></li>";
+    }).join("") + "</ul></section>";
     h += '<section class="card"><h3>Every day together</h3><ul class="list">' + DAYS.map(function (d) {
       return '<li><button class="row-btn" data-act="goday" data-v="' + d.date + '" data-fid="gd' + d.date + '">' + blob(whole(d), 0.45) +
         '<div class="grow"><b>' + shortDate(d.date) + "</b><span>" + esc(d.context) + "</span></div><span>" + whole(d) + "/7</span></button></li>";
@@ -487,111 +540,74 @@
     return h + "</div></div></div>";
   }
 
-  // ---------- stories from Fitbit activity ----------
-  var ACT = { sport: "Exercising", feet: "On its feet, working", walk: "Walking somewhere", desk: "Sitting, working", relax: "Sitting, relaxing" };
-  function stillFor(d, r) {
+  // ---------- stories written from the data ----------
+  function stillFor(d, m) {
     var n = 0;
-    for (var s = r.peakMin / 5 - 1; s >= 0 && n < 36; s--) { if (d.series[s][2] >= 60) break; n++; }
+    for (var s = m.peakMin / 5 - 1; s >= 0 && n < 36; s--) { if (d.series[s][2] >= 60) break; n++; }
     return n * 5;
-  }
-  function guessActivity(d, r) {
-    var lift = r.bpm - d.rhr;
-    if (r.moving && r.steps10 >= 500 && lift >= 60) return "sport";
-    if (r.moving) return r.mins >= 45 ? "feet" : "walk";
-    return stillFor(d, r) >= 45 ? "desk" : "relax";
   }
   function span(m) {
     if (m < 60) return m + " minutes";
     if (m < 90) return "about an hour";
     return "about " + Math.round(m / 30) / 2 + " hours";
   }
-  function activityStory(d, r, act) {
-    var t = fmtTime(r.peakMin), lift = Math.round(r.bpm - d.rhr), still = stillFor(d, r);
-    var when = r.peakMin < 720 ? "in the morning" : r.peakMin < 1080 ? "in the afternoon" : "in the evening";
+  function activityStory(d, m, act) {
+    var t = fmtTime(m.peakMin), lift = Math.round(m.bpm - d.rhr), still = stillFor(d, m);
+    var when = m.peakMin < 720 ? "in the morning" : m.peakMin < 1080 ? "in the afternoon" : "in the evening";
+    var heart = m.marked && !m.rise
+      ? "Its heart was at " + m.bpm + " bpm, " + lift + " above resting."
+      : null;
     switch (act) {
-      case "sport":
-        return t + ". The blob is moving fast: " + r.steps10 + " steps in ten minutes, and its heart is up at " + r.bpm + " bpm. It looks like exercise, a game or a run. Its heart is pounding, but the blob can't tell if that's the running or something else.";
-      case "feet":
-        return t + ". The blob has been on its feet for " + span(r.mins) + ", about " + r.steps10 + " steps every ten minutes. Back and forth, back and forth. Its heart sits at " + r.bpm + " bpm. It might be a busy shift. The blob is tired, but is it under pressure?";
-      case "walk":
-        return t + ". The blob is walking somewhere " + when + ", " + r.steps10 + " steps in ten minutes. Its heart climbs to " + r.bpm + " bpm. Is it heading to something, or away from something? The blob doesn't know.";
-      case "desk":
-        return t + ". The blob has barely moved for " + span(Math.max(still, 10)) + ". It's probably working at a desk. Then, without a single step, its heart races to " + r.bpm + " bpm, " + lift + " above resting. Nothing in its body explains it.";
+      case "Exercising":
+        return t + ". The blob is moving fast: " + m.steps10 + " steps in ten minutes, and its heart is up at " + m.bpm + " bpm. It looks like exercise, a game or a run. " +
+          (heart ? "You marked this moment." : "Its heart is pounding, but the blob can't tell if that's the running or something else.");
+      case "On its feet, working":
+        return t + ". The blob is on its feet, " + m.steps10 + " steps in ten minutes, back and forth. " +
+          (heart || "Its heart sits at " + m.bpm + " bpm for " + span(m.mins) + ".") + " It might be a busy shift. The blob is tired, but is it under pressure?";
+      case "Walking somewhere":
+        return t + ". The blob is walking somewhere " + when + ", " + m.steps10 + " steps in ten minutes. " +
+          (heart || "Its heart climbs to " + m.bpm + " bpm.") + " Is it heading to something, or away from something? The blob doesn't know.";
+      case "Sitting, working":
+        return t + ". The blob has barely moved for " + span(Math.max(still, 10)) + ". It's probably working at a desk. " +
+          (heart ? heart + " You marked this moment." : "Then, without a single step, its heart races to " + m.bpm + " bpm, " + lift + " above resting. Nothing in its body explains it.");
       default:
-        return t + ". The blob is sitting still " + when + ", only " + r.steps10 + " steps in ten minutes. Maybe it's resting, maybe it's with people. But its heart races to " + r.bpm + " bpm and stays up for " + span(r.mins) + ". Something has its attention.";
+        return t + ". The blob is sitting still " + when + ", only " + m.steps10 + " steps in ten minutes. Maybe it's resting, maybe it's with people. " +
+          (heart ? heart + " You marked this moment." : "But its heart races to " + m.bpm + " bpm and stays up for " + span(m.mins) + ". Something has its attention.");
     }
-  }
-
-  function weekStories() {
-    var d = dayBy(S.day);
-    var h = '<section class="card" data-tour="st-week" style="margin-bottom:28px"><h2>Stories from its ' + shortDate(d.date) + "</h2>" +
-      '<p class="small">Made up from what your Fitbit saw. If the blob got the story wrong, tell it what it was really doing.</p>';
-    if (!d.rises.length) {
-      return h + "<p style=\"margin:0\">A calm day for the blob. Its heart stayed close to resting all day. Nothing to talk through tonight.</p></section>";
-    }
-    h += '<div class="story-grid" style="margin-top:16px">';
-    d.rises.forEach(function (r, i) {
-      var a = ans(d, i), k = mKey(d, i), g = guessActivity(d, r), act = a.act || g;
-      h += '<div class="inner story-tile" aria-label="Moment at ' + fmtTime(r.peakMin) + '">' +
-        scene(act !== "desk" && act !== "relax", a.cant ? 1 : a.pressure, ACT[act]) +
-        '<p style="margin:16px 0;font-size:16px">' + esc(activityStory(d, r, act)) + "</p>" +
-        '<p style="margin:0 0 8px;font-weight:700;color:var(--ink)">What was the blob doing?</p>' +
-        '<div class="pills" role="radiogroup" aria-label="What was the blob doing at ' + fmtTime(r.peakMin) + '?">' +
-        Object.keys(ACT).map(function (id) {
-          return '<button type="button" class="pill" role="radio" aria-checked="' + (act === id) + '" data-act="act" data-key="' + k + '" data-v="' + id + '" data-fid="act' + k + id + '">' +
-            ACT[id] + (id === g ? ' <span class="muted">· Fitbit\'s guess</span>' : "") + "</button>";
-        }).join("") + "</div>" +
-        '<p style="margin:18px 0 8px;font-weight:700;color:var(--ink)">How much pressure was it feeling?</p>' +
-        scale("mp:" + k, a.cant ? null : a.pressure, 0.65, "How much pressure was it feeling at " + fmtTime(r.peakMin) + "?") +
-        "</div>";
-    });
-    return h + "</div></section>";
-  }
-
-  function viewStories() {
-    var h = '<div class="wrap"><div class="head" style="max-width:760px"><h1>Help the blob understand.</h1>' +
-      "<p>Come back to its stories any time. Change how flat each one leaves the blob, or tell it what a story is missing.</p></div>" +
-      weekStories() + '<h2>The blob\'s first stories</h2><div class="story-grid">';
-    DATA.stories.forEach(function (_, i) {
-      var s = story(i), fb = S.fb[i] || {};
-      h += '<section class="card story-tile"' + (i === 0 ? ' data-tour="st-first"' : "") + ' aria-label="Story ' + (i + 1) + ' of 8">' +
-        '<p class="small" style="margin-bottom:10px">Story ' + (i + 1) + " of 8</p>" + scene(s.moving, s.blob) +
-        '<div class="story-card">' +
-        factorRow("due", s.due ? "The blob has an assessment due tomorrow." : "The blob has nothing due this week.") +
-        factorRow("moving", s.moving ? "It has been on its feet for hours." : "It has been sitting at a desk for hours.") +
-        factorRow("behind", s.behind ? "It's behind, and no one can help." : "It's on top of things.") + "</div>" +
-        '<h3 style="margin-top:20px">How much pressure does the blob feel?</h3>' + scale("sb:" + i, s.blob, 0.7, "How much pressure does the blob feel? Story " + (i + 1)) +
-        '<p style="margin:18px 0 8px;font-weight:700;color:var(--ink)">And how much would you feel, in its place?</p>' + scale("sy:" + i, s.you, 0.6, "And how much would you feel, in its place? Story " + (i + 1)) +
-        '<p style="margin:20px 0 8px;font-weight:700;color:var(--ink)">Does this story feel right for the blob?</p>' +
-        '<div class="pills" role="radiogroup" aria-label="Does story ' + (i + 1) + ' feel right for the blob?">' +
-        [["right", "Feels right"], ["notquite", "Not quite"]].map(function (o) {
-          return '<button type="button" class="pill" role="radio" aria-checked="' + (fb.verdict === o[0]) + '" data-act="fb" data-key="' + i + '" data-v="' + o[0] + '" data-fid="fb' + i + o[0] + '">' + o[1] + "</button>";
-        }).join("") + "</div>" +
-        '<label class="fb-label" for="fb-note-' + i + '">Tell the blob what it\'s missing</label>' +
-        '<textarea class="fb-note" id="fb-note-' + i + '" data-note="' + i + '" rows="2" placeholder="A shift after a deadline feels different…">' + esc(fb.note || "") + "</textarea>" +
-        "</section>";
-    });
-    return h + '</div><div class="btns" style="margin-top:24px"><a class="btn primary" href="#blob">See what the blob learned</a></div></div>';
   }
 
   function viewBlob(fromSetup) {
-    var e = effects();
+    var e = effects(), re = realEffects(), enough = re.n >= 8;
     function row(label, v, color) {
       var pct = Math.min(1, Math.abs(v) / 4) * 50;
       var style = v >= 0 ? "left:50%;width:" + pct + "%" : "right:50%;width:" + pct + "%";
       return '<div class="effect"><b>' + label + '</b><div class="axis" aria-hidden="true"><i style="' + style + ";background:" + color + '"></i></div><span style="text-align:right;font-weight:700">' + signed(v) + "</span></div>";
     }
+    function rows(x) {
+      return row("Something due", x.due, "var(--plum)") + row("Being behind", x.behind, "var(--plum)") + row("Being on its feet", x.moving, "var(--orange)");
+    }
+    var agree = "";
+    if (enough) {
+      var names = { due: "something being due", behind: "being behind", moving: "being on its feet" }, big = null, bigD = 0;
+      ["due", "behind", "moving"].forEach(function (f) { var dd = Math.abs(e[f] - re[f]); if (dd > bigD) { bigD = dd; big = f; } });
+      agree = bigD < 1
+        ? "Your practice answers and your real days agree."
+        : "Your practice answers and your real days disagree on " + names[big] + ": " + signed(e[big]) + " in practice, " + signed(re[big]) + " in your real moments.";
+    }
     var gap = e.gap, x = f1(Math.abs(gap));
     var h = '<div class="wrap"' + (fromSetup ? ' style="padding-top:0"' : "") + '><div class="head"><h1>The blob is starting to understand.</h1>' +
-      "<p>From the 8 stories you told it, this is what the blob now knows flattens it.</p></div>" +
+      "<p>From your practice stories and your real moments, this is what the blob now knows flattens it.</p></div>" +
       '<div class="grid"><div class="col"><section class="card" data-tour="b-effects"><h2>What flattens the blob</h2><p class="small">How much flatter it gets, on the 1–7 scale</p>' +
-      '<div role="img" aria-label="Effects: something due ' + signed(e.due) + ", being behind " + signed(e.behind) + ", being on its feet " + signed(e.moving) + '">' +
-      row("Something due", e.due, "var(--plum)") + row("Being behind", e.behind, "var(--plum)") + row("Being on its feet", e.moving, "var(--orange)") + "</div></section>" +
+      '<div class="two-eff"><div role="img" aria-label="In practice: something due ' + signed(e.due) + ", being behind " + signed(e.behind) + ", being on its feet " + signed(e.moving) + '">' +
+      "<h3>In practice</h3>" + rows(e) + "</div>" +
+      '<div' + (enough ? ' role="img" aria-label="In your real moments: something due ' + signed(re.due) + ", being behind " + signed(re.behind) + ", being on its feet " + signed(re.moving) + '"' : "") + ">" +
+      "<h3>In your real moments</h3>" + (enough ? rows(re) : "<p>The blob needs a few more nights with you.</p>") + "</div></div>" +
+      (agree ? '<p style="margin:16px 0 0;font-weight:500;color:var(--ink)">' + agree + "</p>" : "") + "</section>" +
       '<div class="btns">' +
       '<button class="btn ghost" data-act="retell" data-fid="retell">' + (fromSetup ? "Change my answers" : "Tell the stories again") + "</button>" +
       (S.done ? '<a class="btn primary" href="#today">Spend a day with the blob</a>' : "") + "</div></div>" +
       '<div class="col"><section class="card yellow"><h3>What this means</h3><p style="margin:0">' +
-      (Math.abs(e.moving) < 0.75
+      ((enough ? re.moving : e.moving) < 0.75
         ? "Being on its feet barely flattens the blob. So when its heart races during a busy shift, it now knows that's effort, not pressure."
         : "Being on its feet flattens the blob too, so it may still mix up tiredness and pressure. It will keep watching.") + "</p></section>" +
       '<section class="card indigo" data-tour="b-gap"><h3>You and the blob</h3><p style="margin:0">In its place, you felt ' + x + " " + (gap >= 0 ? "less" : "more") + " than the blob on average. " +
@@ -599,25 +615,22 @@
     return h;
   }
 
-
   // ---------- walkthrough ----------
   var TOUR = [
     { r: "welcome", t: "w-blob", h: "Meet the blob", b: "It's a blob. It doesn't understand how it feels. Can you help it understand how it feels?" },
-    { r: "welcome", t: "w-start", h: "Start here", b: "Meet the blob teaches it with 8 short stories. It takes about 3 minutes." },
+    { r: "welcome", t: "w-start", h: "Start here", b: "Meet the blob starts with 8 practice stories, before your Fitbit has anything to show. It takes about 3 minutes." },
     { r: "setup", step: 1, t: "s-scale", h: "The flattening scale", b: "The blob shows pressure by flattening. Every answer in the app uses this 1 to 7 scale." },
-    { r: "setup", step: 2, t: "s-story", h: "A story from its life", b: "Each story changes three things: whether something is due, whether it's behind, and whether it's on its feet." },
+    { r: "setup", step: 2, t: "s-story", h: "A practice story", b: "Each story changes three things: whether something is due, whether it's behind, and whether it's on its feet." },
     { r: "setup", step: 2, t: "s-rate", h: "Two answers per story", b: "You rate how flat the blob would feel, then how flat you would feel in its place." },
-    { r: "today", t: "t-chart", h: "The blob's day", b: "Heart rate across the whole day. Dots mark the moments its heart raced 25+ bpm over resting: orange while moving, plum while still. Bars along the bottom are steps." },
+    { r: "today", t: "t-chart", h: "The blob's day", b: "Heart rate across the whole day. Dots mark the moments the blob will ask about, coloured by what it was probably doing. Bars along the bottom are steps." },
     { r: "today", t: "t-stats", h: "The day in numbers", b: "Resting heartbeat, steps, how many times its heart raced, and how flat the day left it." },
     { r: "today", t: "t-mark", h: "Mark a moment", b: "If something happens during the day, one tap tells the blob to ask about it tonight." },
-    { r: "review", t: "r-moment", h: "Tonight with the blob", b: "Each moment its heart raced, told as a short story with the steps before it and a close-up of the heart rate." },
-    { r: "review", t: "r-help", h: "Help the blob understand", b: "Two quick questions and the scale. If you can't remember, the blob leaves that moment out." },
+    { r: "review", t: "r-moment", h: "Tonight with the blob", b: "Each moment, written as a short story from what the Fitbit saw, with a close-up of the heart rate." },
+    { r: "review", t: "r-help", h: "Help the blob understand", b: "Check what it was doing (Fitbit's guess is already picked), answer two quick questions and use the scale. If you can't remember, the blob leaves that moment out." },
     { r: "review", t: "r-map", h: "The day map", b: "Every moment placed by how much the blob was moving and how much pressure it felt: Pressure, Overload, Effort or Neither." },
-    { r: "stories", t: "st-week", h: "Stories from its day", b: "The blob makes up a short story for each moment, from what your Fitbit saw. Tell it what it was really doing and how much pressure it felt." },
-    { r: "stories", t: "st-first", h: "Its first stories, any time", b: "Come back to the blob's first 8 stories whenever you like. Change how flat each one leaves it, say whether it feels right, and tell it what it's missing." },
     { r: "headspace", t: "h-sugg", h: "What it learned", b: "Once the blob sees a pattern across enough days, it suggests a small way to look after you both." },
     { r: "headspace", t: "h-links", h: "What it has noticed", b: "Three links between your body and your headspace. Each one shows how sure the blob is so far." },
-    { r: "blob", t: "b-effects", h: "About the blob", b: "From your 8 stories: how much each factor flattens the blob. If being on its feet barely matters, a busy shift reads as effort, not pressure." },
+    { r: "blob", t: "b-effects", h: "About the blob", b: "How much each thing flattens the blob, in your practice stories and in your real moments, side by side. This is where the stories meet the data." },
     { r: "blob", t: "b-gap", h: "You and the blob", b: "How differently you'd feel in its place. A big gap might mean you go easier on yourself than on the blob." },
     { r: null, t: "tour", h: "That's the tour", b: "You can come back to it any time from here." }
   ];
@@ -625,8 +638,8 @@
   function tourStart() {
     T = { i: 0, hash: location.hash || "#welcome", step: S.step, story: S.story, day: S.day, mi: S.mi };
     var d = dayBy(S.day);
-    if (!d.rises.length) {
-      for (var j = DAYS.length - 1; j >= 0; j--) if (DAYS[j].rises.length) { S.day = DAYS[j].date; S.mi = 0; break; }
+    if (!moments(d).length) {
+      for (var j = DAYS.length - 1; j >= 0; j--) if (moments(DAYS[j]).length) { S.day = DAYS[j].date; S.mi = 0; break; }
     }
     document.getElementById("tour").hidden = false;
     tourGo(0);
@@ -699,13 +712,13 @@
   function render() {
     var r = route(), app = document.getElementById("app");
     var fid = document.activeElement && document.activeElement.getAttribute("data-fid");
-    var html = { welcome: viewWelcome, setup: viewSetup, today: viewToday, review: viewReview, stories: viewStories, headspace: viewHeadspace, blob: function () { return viewBlob(false); } }[r]();
+    var html = { welcome: viewWelcome, setup: viewSetup, today: viewToday, review: viewReview, headspace: viewHeadspace, blob: function () { return viewBlob(false); } }[r]();
     app.innerHTML = html;
     document.querySelectorAll(".tabs a").forEach(function (a) {
       if (a.getAttribute("data-tab") === r) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
     var dp = document.getElementById("daypick");
-    dp.innerHTML = r === "today" || r === "review" || r === "stories"
+    dp.innerHTML = r === "today" || r === "review"
       ? '<label class="vh" for="day-select">Day</label><select id="day-select">' + DAYS.map(function (d) {
           return '<option value="' + d.date + '"' + (d.date === S.day ? " selected" : "") + ">" + shortDate(d.date) + "</option>";
         }).join("") + "</select>"
@@ -713,7 +726,7 @@
     if (r !== lastRoute) {
       window.scrollTo(0, 0);
       if (lastRoute !== null) app.focus({ preventScroll: true });
-      document.title = { welcome: "Pressure or Effort", setup: "Meet the blob · Pressure or Effort", today: "The blob's day · Pressure or Effort", review: "Tonight · Pressure or Effort", stories: "Its stories · Pressure or Effort", headspace: "What it learned · Pressure or Effort", blob: "About the blob · Pressure or Effort" }[r];
+      document.title = { welcome: "Pressure or Effort", setup: "Meet the blob · Pressure or Effort", today: "The blob's day · Pressure or Effort", review: "Tonight · Pressure or Effort", headspace: "What it learned · Pressure or Effort", blob: "About the blob · Pressure or Effort" }[r];
     } else if (fid) {
       var el = app.querySelector('[data-fid="' + fid + '"]');
       if (el) el.focus({ preventScroll: true });
@@ -725,14 +738,13 @@
 
   function setValue(key, v) {
     var p = key.split(":"), t = p[0], id = p.slice(1).join(":");
-    var mm = function () { return (S.m[id] = S.m[id] || {}); };
     if (t === "try") S.tryLevel = v;
     else if (t === "sb" || t === "sy") { var s = (S.stories[id] = S.stories[id] || {}); s[t === "sb" ? "blob" : "you"] = v; }
     else if (t === "whole") S.whole[id] = v;
     else if (t === "match") S.match[id] = v;
-    else if (t === "mp") { mm().pressure = v; mm().cant = false; }
-    else if (t === "mdue") mm().due = !!v;
-    else if (t === "mtop") mm().onTop = !!v;
+    else if (t === "mp") setAns(id, { pressure: v, cantRemember: false });
+    else if (t === "mdue") setAns(id, { due: !!v });
+    else if (t === "mtop") setAns(id, { onTop: !!v });
   }
 
   var toastTimer;
@@ -760,14 +772,19 @@
       lastRoute = null; commit();
     }
     else if (act === "retell") { S.step = 2; S.story = 0; save(); if (location.hash === "#setup") { lastRoute = null; render(); } else location.hash = "#setup"; }
-    else if (act === "cant") { var m = (S.m[key] = S.m[key] || {}); m.cant = !ans(dayBy(key.split("#")[0]), +key.split("#")[1]).cant; commit(); }
-    else if (act === "next") { var n = dayBy(S.day).rises.length; S.mi = (Math.min(S.mi, n - 1) + 1) % n; commit(); }
+    else if (act === "cant") { var f = findMoment(key); setAns(key, { cantRemember: !ans(f.d, f.m).cantRemember }); commit(); }
+    else if (act === "next") { var n = moments(dayBy(S.day)).length; S.mi = (Math.min(S.mi, n - 1) + 1) % n; commit(); }
     else if (act === "mi") { S.mi = +v; commit(); }
     else if (act === "sugg") { S.sugg[key] = S.sugg[key] === v ? undefined : v; commit(); }
-    else if (act === "act") { var am = (S.m[key] = S.m[key] || {}); am.act = am.act === v ? undefined : v; commit(); }
-    else if (act === "fb") { var f = (S.fb[key] = S.fb[key] || {}); f.verdict = f.verdict === v ? undefined : v; commit(); }
+    else if (act === "act") { setAns(key, { activity: v }); commit(); }
     else if (act === "goday") { S.day = v; S.mi = 0; save(); location.hash = "#today"; }
-    else if (act === "mark") toast("Marked. The blob will ask you about it tonight.");
+    else if (act === "mark") {
+      var now = new Date(), slot = Math.floor((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+      var list = (S.marks[S.day] = S.marks[S.day] || []);
+      if (list.indexOf(slot) < 0) list.push(slot);
+      commit();
+      toast("Marked. The blob will ask you about it tonight.");
+    }
   });
 
   // arrow keys inside radio groups
@@ -781,13 +798,6 @@
     ev.preventDefault();
     next.focus();
     next.click();
-  });
-
-  document.addEventListener("input", function (ev) {
-    var i = ev.target.getAttribute && ev.target.getAttribute("data-note");
-    if (i == null) return;
-    (S.fb[i] = S.fb[i] || {}).note = ev.target.value;
-    save();
   });
 
   document.addEventListener("change", function (ev) {
