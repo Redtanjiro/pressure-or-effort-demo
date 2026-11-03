@@ -10,7 +10,7 @@
   var S = load();
   function blank() {
     return { done: false, step: 0, story: 0, tryLevel: 4, day: DAYS[DAYS.length - 1].date, mi: 0,
-      stories: {}, fb: {}, m: {}, whole: {}, guess: {}, match: {}, sugg: {} };
+      stories: {}, fb: {}, m: {}, whole: {}, match: {}, sugg: {} };
   }
   function load() {
     var s = blank();
@@ -42,7 +42,6 @@
     };
   }
   function whole(d) { return S.whole[d.date] != null ? S.whole[d.date] : d.whole; }
-  function guess(d) { return S.guess[d.date] != null ? S.guess[d.date] : d.guess; }
   function match(d) { return S.match[d.date] != null ? S.match[d.date] : d.match; }
   function story(i) {
     var s = DATA.stories[i], u = S.stories[i] || {};
@@ -232,12 +231,6 @@
       name: "Steps and the whole day",
       text: "On days with 10,000+ steps, the blob ended up " + f1(mean(hi)) + "/7. On quieter days, " + f1(mean(lo)) + "/7." };
 
-    var heavy = DAYS.filter(function (d) { return whole(d) >= 4; });
-    var dd = mean(heavy.map(function (d) { return whole(d) - guess(d); }));
-    var all = mean(DAYS.map(function (d) { return Math.abs(whole(d) - guess(d)); }));
-    var l3 = { diff: dd, n: heavy.length * 2, thr: 1, name: "Your guesses for it",
-      text: "On heavier days, your morning guess for the blob was " + f1(dd) + " points too low. Across all days, " + f1(all) + " off." };
-
     var aH = [], aL = [];
     for (var i = 0; i < DAYS.length - 1; i++) {
       var w = whole(DAYS[i]);
@@ -250,10 +243,9 @@
     var titles = [
       "Before a long sit at the desk tonight, let's move for 10 minutes first.",
       "On days when something's due, let's fit in a walk, not just desk time.",
-      "Busy days catch us both out. When something's due, let's keep the evening light.",
       "After a heavy day, let's start the next one gently. Your heart is still catching up."
     ];
-    return [l1, l2, l3, l4].map(function (l, i) {
+    return [l1, l2, l4].map(function (l, i) {
       l.id = "s" + (i + 1); l.title = titles[i];
       l.chip = l.n < 6 ? "Needs more days" : Math.abs(l.diff) < l.thr ? "Not sure yet" : "Starting to see it";
       l.ok = l.chip === "Starting to see it" && l.diff > 0;
@@ -350,9 +342,7 @@
     var h = '<div class="wrap"><div class="head"><h1>' + longDate(d.date) + '</h1><p>The blob\'s calendar: ' + esc(d.context) + "</p></div>" +
       '<div class="grid"><div class="col">' +
       '<section class="card" data-tour="t-chart"><h2>' + verdict(w) + "</h2>" + kindChips(d) +
-      hrChart(d, 0, 1440, { label: "The blob's heart rate across " + longDate(d.date) + ", with steps and " + n + " moments when it raced" }) + legend() + "</section>" +
-      '<section class="card" data-tour="t-guess"><h2>This morning</h2><p>You guessed how much the day ahead would flatten the blob.</p>' +
-      scale("guess:" + d.date, guess(d), 1, "This morning's guess") + "</section></div>" +
+      hrChart(d, 0, 1440, { label: "The blob's heart rate across " + longDate(d.date) + ", with steps and " + n + " moments when it raced" }) + legend() + "</section></div>" +
       '<div class="col"><section class="card" data-tour="t-stats"><div class="stats">' +
       '<div class="stat"><b>' + Math.round(d.rhr) + "</b><span>Its resting heartbeat (bpm)</span></div>" +
       '<div class="stat"><b>' + d.steps.toLocaleString("en-AU") + "</b><span>Steps</span></div>" +
@@ -401,13 +391,11 @@
   function viewReview() {
     var d = dayBy(S.day), n = d.rises.length;
     var h = '<div class="wrap"><div class="head"><h1>Tonight with the blob</h1><p>' + longDate(d.date) + " · " + n + " moment" + (n === 1 ? "" : "s") + " when its heart raced</p></div>";
-    var g = guess(d), w = whole(d), right = "";
+    var w = whole(d), right = "";
     right += '<section class="card yellow"><h3>And how did the whole day leave the blob?</h3>' + scale("whole:" + d.date, w, 0.75, "And how did the whole day leave the blob?") + "</section>";
-    var cmp = w > g ? "Heavier for the blob than you guessed." : w < g ? "Lighter for the blob than you guessed." : "About what you guessed for the blob.";
     var mt = match(d), mLab = { 1: "Not at all", 5: "Exactly" };
     right += '<section class="card" data-tour="r-map"><h3>The blob\'s ' + shortDate(d.date) + "</h3>" + (n ? dayMap(d) : "") +
-      '<div class="cmp"><div>' + blob(g, 1, "Your guess " + g + " of 7") + "<br>Your guess " + g + "/7</div><div>" + blob(w, 1, "How it went " + w + " of 7") + "<br>How it went " + w + "/7</div></div>" +
-      '<p style="text-align:center;font-weight:500">' + cmp + "</p>" +
+      '<div class="cmp"><div>' + blob(w, 1, "How it went " + w + " of 7") + "<br>How it went " + w + "/7</div></div>" +
       '<p style="margin-top:20px;font-weight:700">Next morning: does this feel right to you?</p>' +
       '<div class="pills" role="radiogroup" aria-label="Next morning: does this feel right to you?">' +
       [1, 2, 3, 4, 5].map(function (k) {
@@ -451,25 +439,6 @@
     return h + '<div class="grid"><div class="col">' + left + '</div><div class="col">' + list + right + "</div></div></div>";
   }
 
-  function guessChart() {
-    var W = 640, H = 240, L = 30, R = 12, T = 14, B = 30, n = DAYS.length;
-    var x = function (i) { return L + i / (n - 1) * (W - L - R); };
-    var y = function (v) { return T + (1 - (v - 1) / 6) * (H - T - B); };
-    var g = "";
-    [1, 4, 7].forEach(function (v) {
-      g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v + "</text>";
-    });
-    DAYS.forEach(function (d, i) {
-      var gx = guess(d), wx = whole(d);
-      g += '<line x1="' + x(i) + '" x2="' + x(i) + '" y1="' + y(gx) + '" y2="' + y(wx) + '" stroke="var(--muted)" stroke-width="2" opacity="0.5"/>' +
-        '<circle cx="' + x(i) + '" cy="' + y(gx) + '" r="6" fill="var(--card)" stroke="var(--plum)" stroke-width="2.5"/>' +
-        '<circle cx="' + x(i) + '" cy="' + y(wx) + '" r="6" fill="var(--plum)"/>' +
-        '<text x="' + x(i) + '" y="' + (H - 8) + '" text-anchor="middle">' + asDate(d.date).getDate() + "</text>";
-    });
-    return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Your morning guess and how each day left the blob, 19 October to 1 November">' + g + "</svg>" +
-      '<div class="legend"><span><i class="sw" style="border:2.5px solid var(--plum);background:var(--card)"></i>Your morning guess</span><span><i class="sw" style="background:var(--plum)"></i>How the day left it</span></div>';
-  }
-
   function viewHeadspace() {
     var ls = links(), sug = ls.filter(function (l) { return l.ok; });
     var nDays = DAYS.filter(function (d) { return whole(d) != null; }).length;
@@ -492,7 +461,7 @@
       return '<div class="link-row"' + (l.r != null ? ' aria-label="' + esc(l.name + ". " + l.text + " Correlation of steps and the whole day: " + l.r.toFixed(2)) + '"' : "") + '><div><b>' + l.name + "</b><p>" + esc(l.text) + "</p></div>" +
         '<span class="chip' + (l.chip === "Starting to see it" ? " yellow" : "") + '">' + l.chip + "</span></div>";
     }).join("") + "</section>";
-    h += '<section class="card" data-tour="h-guess"><h2>Your guess vs how the day went</h2>' + guessChart() + "</section></div>";
+    h += "</div>";
 
     // right column
     var situ = ["Sitting still, evening", "Sitting still, daytime", "Walking", "On its feet"], by = {};
@@ -639,7 +608,6 @@
     { r: "setup", step: 2, t: "s-story", h: "A story from its life", b: "Each story changes three things: whether something is due, whether it's behind, and whether it's on its feet." },
     { r: "setup", step: 2, t: "s-rate", h: "Two answers per story", b: "You rate how flat the blob would feel, then how flat you would feel in its place." },
     { r: "today", t: "t-chart", h: "The blob's day", b: "Heart rate across the whole day. Dots mark the moments its heart raced 25+ bpm over resting: orange while moving, plum while still. Bars along the bottom are steps." },
-    { r: "today", t: "t-guess", h: "This morning's guess", b: "Each morning you guess how much the day ahead will flatten the blob. Tonight you'll compare." },
     { r: "today", t: "t-stats", h: "The day in numbers", b: "Resting heartbeat, steps, how many times its heart raced, and how flat the day left it." },
     { r: "today", t: "t-mark", h: "Mark a moment", b: "If something happens during the day, one tap tells the blob to ask about it tonight." },
     { r: "review", t: "r-moment", h: "Tonight with the blob", b: "Each moment its heart raced, told as a short story with the steps before it and a close-up of the heart rate." },
@@ -648,8 +616,7 @@
     { r: "stories", t: "st-week", h: "Stories from its day", b: "The blob makes up a short story for each moment, from what your Fitbit saw. Tell it what it was really doing and how much pressure it felt." },
     { r: "stories", t: "st-first", h: "Its first stories, any time", b: "Come back to the blob's first 8 stories whenever you like. Change how flat each one leaves it, say whether it feels right, and tell it what it's missing." },
     { r: "headspace", t: "h-sugg", h: "What it learned", b: "Once the blob sees a pattern across enough days, it suggests a small way to look after you both." },
-    { r: "headspace", t: "h-links", h: "What it has noticed", b: "Four links between your body and your headspace. Each one shows how sure the blob is so far." },
-    { r: "headspace", t: "h-guess", h: "Your guess vs the day", b: "Open circles are your morning guess. Filled circles are how the day actually left the blob." },
+    { r: "headspace", t: "h-links", h: "What it has noticed", b: "Three links between your body and your headspace. Each one shows how sure the blob is so far." },
     { r: "blob", t: "b-effects", h: "About the blob", b: "From your 8 stories: how much each factor flattens the blob. If being on its feet barely matters, a busy shift reads as effort, not pressure." },
     { r: "blob", t: "b-gap", h: "You and the blob", b: "How differently you'd feel in its place. A big gap might mean you go easier on yourself than on the blob." },
     { r: null, t: "tour", h: "That's the tour", b: "You can come back to it any time from here." }
@@ -761,7 +728,6 @@
     var mm = function () { return (S.m[id] = S.m[id] || {}); };
     if (t === "try") S.tryLevel = v;
     else if (t === "sb" || t === "sy") { var s = (S.stories[id] = S.stories[id] || {}); s[t === "sb" ? "blob" : "you"] = v; }
-    else if (t === "guess") S.guess[id] = v;
     else if (t === "whole") S.whole[id] = v;
     else if (t === "match") S.match[id] = v;
     else if (t === "mp") { mm().pressure = v; mm().cant = false; }
