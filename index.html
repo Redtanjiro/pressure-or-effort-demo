@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pressure or Effort</title>
+<meta name="description" content="A faceless blob shares your heartbeat and learns, with your help, what it feels.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#welcome"><span class="dot" aria-hidden="true"></span>Pressure or Effort</a>
+    <nav class="tabs" aria-label="Main">
+      <a href="#today" data-tab="today">The blob's day</a>
+      <a href="#review" data-tab="review">Tonight</a>
+      <a href="#headspace" data-tab="headspace">What it learned</a>
+      <a href="#blob" data-tab="blob">About the blob</a>
+    </nav>
+    <div class="daypick" id="daypick"></div>
+  </div>
+</header>
+<main id="app" tabindex="-1"></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
