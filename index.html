@@ -20,11 +20,25 @@
       <a href="#headspace" data-tab="headspace">What it learned</a>
       <a href="#blob" data-tab="blob">About the blob</a>
     </nav>
-    <div class="daypick" id="daypick"></div>
+    <div class="topright">
+      <div class="daypick" id="daypick"></div>
+      <button class="tour-btn" id="tour-btn" type="button" aria-label="Walkthrough"><span aria-hidden="true">?</span><b>Walkthrough</b></button>
+    </div>
   </div>
 </header>
 <main id="app" tabindex="-1"></main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="tour-spot" id="tour-spot" hidden></div>
+<div class="tour" id="tour" role="dialog" aria-label="Walkthrough" hidden>
+  <p class="tour-n small"></p>
+  <h3></h3>
+  <p class="tour-b"></p>
+  <div class="btns">
+    <button class="btn ghost" type="button" data-tour-act="back">Back</button>
+    <button class="btn primary" type="button" data-tour-act="next">Next</button>
+    <button class="tour-x" type="button" data-tour-act="close" aria-label="Close walkthrough">✕</button>
+  </div>
+</div>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>
