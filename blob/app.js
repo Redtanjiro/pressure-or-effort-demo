@@ -1,0 +1,557 @@
+(function () {
+  "use strict";
+
+  var D = window.BLOB_DATA, DAYS = D.days, TODAY = D.today, NOW = D.now;
+  var KEY = "blob-app-v1";
+  var REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- state ----------
+  var S = (function () {
+    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false };
+    try { var raw = localStorage.getItem(KEY); if (raw) { var v = JSON.parse(raw); for (var k in v) if (k in s) s[k] = v[k]; } } catch (e) { /* no storage */ }
+    return s;
+  })();
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
+
+  // ---------- helpers ----------
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function mean(a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; }
+  function f1(x) { return (Math.round(x * 10) / 10).toFixed(1); }
+  function asDate(s) { var p = s.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  var WD = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var MO = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  function longDate(s) { var d = asDate(s); return WD[d.getDay()] + " " + d.getDate() + " " + MO[d.getMonth()]; }
+  function shortDate(s) { var d = asDate(s); return WD[d.getDay()].slice(0, 3) + " " + d.getDate() + " " + MO[d.getMonth()].slice(0, 3); }
+  function clock(min) { var h = Math.floor(min / 60) % 24, m = min % 60; return (h % 12 || 12) + ":" + (m < 10 ? "0" : "") + m; }
+  function ampm(min) { return clock(min) + " " + (Math.floor(min / 60) % 24 < 12 ? "am" : "pm"); }
+  function dayBy(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i]; return null; }
+
+  // ---------- moments ----------
+  var ACTS = ["Exercising", "Walking somewhere", "On its feet working", "Sitting working", "Sitting relaxing"];
+  var VOICE = { "Exercising": "exercising", "Walking somewhere": "walking somewhere", "On its feet working": "on my feet working", "Sitting working": "sitting working", "Sitting relaxing": "sitting relaxing" };
+  var MOVING = { "Exercising": true, "Walking somewhere": true, "On its feet working": true };
+  function watchGuess(d, r) {
+    var lift = r.bpm - d.rhr;
+    if (r.steps10 > 250) return r.steps10 > 1000 && lift >= 60 ? "Exercising" : r.mins >= 45 ? "On its feet working" : "Walking somewhere";
+    return r.peakMin >= 480 && r.peakMin < 1140 ? "Sitting working" : "Sitting relaxing";
+  }
+  var ALL = [];
+  DAYS.forEach(function (d) {
+    d.moments = d.rises.map(function (r) {
+      var m = { id: d.date + "|" + r.peakMin, date: d.date, day: d, peakMin: r.peakMin, start: r.start, end: r.end, bpm: r.bpm,
+        lift: Math.round(r.bpm - d.rhr), steps10: r.steps10, mins: r.mins, watch: watchGuess(d, r), example: r.answer,
+        score: (r.bpm - d.rhr) * Math.sqrt(r.mins) };
+      ALL.push(m);
+      return m;
+    });
+  });
+  var byId = {}; ALL.forEach(function (m) { byId[m.id] = m; });
+  function todayDay() { return dayBy(TODAY); }
+  function storiesOf(d) { return d.moments.slice().sort(function (a, b) { return b.score - a.score; }).slice(0, 4); }
+  function ans(m) {
+    var u = S.answers[m.id];
+    if (u) return u;
+    if (m.example) return { activity: m.watch, due: m.example.due, onTop: m.example.onTop, flat: m.example.flat, cantRemember: false };
+    return null;
+  }
+  function answered(m) { var a = ans(m); return !!(a && !a.cantRemember && a.flat); }
+  function activityOf(m) { var a = ans(m); return (a && a.activity) || m.watch; }
+  function isMoving(m) { return !!MOVING[activityOf(m)]; }
+  function kind(moving, flat) { return moving ? (flat >= 4 ? "Overload" : "Effort") : (flat >= 4 ? "Pressure" : "Neither"); }
+  function part(min) { return min < 720 ? 0 : min < 900 ? 1 : min < 1080 ? 2 : 3; }
+
+  // the blob's guess about itself, from similar past moments (and the practice stories as a seed)
+  function selfGuess(m) {
+    var mv = !!MOVING[m.watch];
+    var sim = ALL.filter(function (o) { return o.id !== m.id && answered(o) && isMoving(o) === mv && part(o.peakMin) === part(m.peakMin) && (o.date < m.date || (o.date === m.date && S.answers[o.id])); });
+    var flats = sim.map(function (o) { return ans(o).flat; });
+    var seed = D.practice.filter(function (p) { return !!p.moving === mv; }).map(function (p) { return p.flat; });
+    var n = sim.length, spread = n ? Math.max.apply(null, flats) - Math.min.apply(null, flats) : 0;
+    var g = Math.max(1, Math.min(7, Math.round(n ? (mean(flats) * n + mean(seed) * 0.5) / (n + 0.5) : mean(seed))));
+    var stage = n < 3 ? 1 : n >= 5 && spread <= 2 ? 3 : 2;
+    var dues = sim.filter(function (o) { return ans(o).due; }).length;
+    var last = sim.sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+    return { stage: stage, flat: g, n: n, due: dues * 2 > n, last: last, kind: kind(mv, g) };
+  }
+
+  function stillPhrase(mins) { return mins < 60 ? mins + " minutes" : "over an hour"; }
+  function stillFor(m) {
+    var s = m.day.series, n = 0;
+    for (var i = Math.floor(m.peakMin / 5) - 1; i >= 0 && n < 48; i--) { if (s[i][2] > 60) break; n++; }
+    return { mins: n * 5, since: (Math.floor(m.peakMin / 5) - n) * 5 };
+  }
+  function vignette(m) {
+    var g = selfGuess(m), act = m.watch, t = clock(m.peakMin);
+    if (g.stage === 3) {
+      var k = { Pressure: "my pressure", Overload: "my overload", Effort: "my effort", Neither: "just my heart" }[g.kind];
+      return t + ", " + VOICE[act] + ", heart racing. That's " + k + " again. I'm about a " + g.flat + ".";
+    }
+    if (g.stage === 2) {
+      var when = g.last ? "like last " + WD[asDate(g.last.date).getDay()] : "like before";
+      return "I was " + VOICE[act] + ", " + when + ". " + (g.due ? "I think something might have been due… " : "I don't think anything was due… ") +
+        (g.flat >= 4 ? "was I a bit flattened, maybe a " + g.flat + "?" : "was I mostly fine, maybe a " + g.flat + "?");
+    }
+    if (MOVING[act]) {
+      if (act === "Exercising") return "At " + t + " my heart was pounding. I was moving fast, " + m.steps10 + " steps in ten minutes.";
+      if (act === "On its feet working") return "At " + t + " my heart started racing. I'd been on my feet for " + stillPhrase(m.mins).replace("over ", "") + ", back and forth.";
+      return "At " + t + " my heart started racing. I was walking somewhere, " + m.steps10 + " steps in ten minutes.";
+    }
+    var sf = stillFor(m);
+    return "At " + t + " my heart started racing. I'd been sitting still for " + stillPhrase(Math.max(10, sf.mins)) +
+      (sf.since >= 720 && sf.since <= 840 && m.peakMin > 840 ? ", and hadn't moved since lunch." : ".");
+  }
+
+  // ---------- the blob ----------
+  var V = [
+    "M50 4C78 4 96 24 96 52C96 76 90 86 50 86C10 86 4 76 4 52C4 24 22 4 50 4Z",
+    "M52 3C80 5 97 26 96 53C95 77 89 86 50 86C11 86 5 77 4 51C3 25 24 2 52 3Z",
+    "M48 5C76 3 95 23 97 51C97 76 91 86 50 86C9 86 3 75 5 53C6 26 20 6 48 5Z"
+  ];
+  var uid = 0;
+  function dims(k) { return { w: 40 + (k - 1) * 7, h: 56 - (k - 1) * 5.8 }; }
+  function mapPath(p, x0, y0, W, H) {
+    var i = 0;
+    return p.replace(/-?\d+(\.\d+)?/g, function (n) { var v = +n; var out = i % 2 === 0 ? x0 + (v - 4) / 92 * W : y0 + (v - 4) / 82 * H; i++; return out.toFixed(2); });
+  }
+  // opts: f (size), state, pal, stage (px box for sphere), still (no motion), label
+  function blob(k, opts) {
+    opts = opts || {};
+    k = Math.max(1, Math.min(7, k || 1));
+    var f = opts.f || 2, dm = dims(k), W = dm.w * f, H = dm.h * f, n = ++uid;
+    var state = opts.state || (k >= 4 ? "flat" : "wait");
+    var pal = opts.pal || ({ flat: "dusk", breathe: "sage", puff: "sage", work: "glow" }[state] || "calm");
+    var stageW = opts.box || Math.max(W * 1.7, 56 * f * 1.25), stageH = opts.boxH || stageW;
+    var SW = W * 1.6, SH = H * 1.5, x0 = (SW - W) / 2, y0 = SH - H - H * 0.14;
+    var fs = (W + H) / 40, eyeY = y0 + H * 0.31 + fs, lid = 1 - (k - 1) * 0.08, drop = (k - 1) * 0.06 * fs;
+    var still = opts.still || REDUCED;
+    var paths = V.map(function (p) { return mapPath(p, x0, y0, W, H); });
+    var anim = still ? "" : '<animate attributeName="d" dur="' + (k >= 5 ? 8.1 : 5.4) + 's" repeatCount="indefinite" calcMode="spline" keyTimes="0;.33;.66;1" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1" values="' + paths[0] + ";" + paths[1] + ";" + paths[2] + ";" + paths[0] + '"/>';
+    var cx = x0 + W / 2;
+    function eye(x) {
+      return '<g transform="translate(0 ' + (eyeY * (1 - lid)).toFixed(2) + ') scale(1 ' + lid.toFixed(3) + ')"><g class="b-blink">' +
+        '<ellipse cx="' + x.toFixed(2) + '" cy="' + eyeY.toFixed(2) + '" rx="' + (0.75 * fs).toFixed(2) + '" ry="' + fs.toFixed(2) + '" fill="#2d2c2b" fill-opacity=".92"/>' +
+        '<ellipse cx="' + (x - 0.2 * fs).toFixed(2) + '" cy="' + (eyeY - 0.4 * fs).toFixed(2) + '" rx="' + (0.32 * fs).toFixed(2) + '" ry="' + (0.32 * fs).toFixed(2) + '" fill="#fff" fill-opacity=".95"/></g></g>';
+    }
+    var bub = function (c, rx, ry, r) { return '<circle cx="' + (x0 + rx * W).toFixed(1) + '" cy="' + (y0 + ry * H).toFixed(1) + '" r="' + (r * W).toFixed(2) + '" fill="url(#bBub)" stroke="#fff" stroke-opacity=".65" stroke-width=".6"/>'; };
+    var sphereD = stageW * 0.9;
+    var svg = '<svg class="bsvg" width="' + SW.toFixed(1) + '" height="' + SH.toFixed(1) + '" viewBox="0 0 ' + SW.toFixed(1) + " " + SH.toFixed(1) + '" style="left:' + ((stageW - SW) / 2).toFixed(1) + 'px;bottom:' + (stageH * 0.16).toFixed(1) + 'px;--rise:' + (-H * 0.35).toFixed(1) + 'px;--look:' + (0.45 * fs).toFixed(2) + 'px;--upv:' + (0.5 * fs).toFixed(2) + 'px" aria-hidden="true">' +
+      '<defs><path id="bp' + n + '" d="' + paths[0] + '">' + anim + '</path><clipPath id="bc' + n + '"><use href="#bp' + n + '"/></clipPath></defs>' +
+      '<ellipse cx="' + cx + '" cy="' + (y0 + H + H * 0.06).toFixed(1) + '" rx="' + (W * 0.67).toFixed(1) + '" ry="' + (H * 0.11).toFixed(1) + '" fill="url(#bShadow)" filter="url(#blur1_5)"/>' +
+      '<g class="b-lean"><g class="b-squash">' +
+      '<ellipse class="b-halo" cx="' + cx + '" cy="' + (y0 + H * 0.5).toFixed(1) + '" rx="' + (W * 0.66).toFixed(1) + '" ry="' + (H * 0.62).toFixed(1) + '" fill="url(#bHalo)"/>' +
+      '<g clip-path="url(#bc' + n + ')">' +
+      '<use href="#bp' + n + '" fill="url(#bFill)"/><use href="#bp' + n + '" fill="url(#bBase)"/><use href="#bp' + n + '" fill="url(#bTop)"/>' +
+      '<g class="b-core"><ellipse cx="' + cx + '" cy="' + (y0 + H * 0.68).toFixed(1) + '" rx="' + (W * 0.35).toFixed(1) + '" ry="' + (H * 0.33).toFixed(1) + '" fill="url(#bCore)"/></g>' +
+      '<g class="b-bub b1">' + bub(0, 0.7, 0.66, 0.035) + '</g><g class="b-bub b2">' + bub(0, 0.3, 0.76, 0.021) + '</g><g class="b-bub b3">' + bub(0, 0.55, 0.87, 0.014) + "</g>" +
+      '<ellipse cx="' + cx + '" cy="' + (y0 + H * 0.965).toFixed(1) + '" rx="' + (W * 0.41).toFixed(1) + '" ry="' + (H * 0.088).toFixed(1) + '" fill="url(#bRim)"/>' +
+      '<g class="b-hl"><ellipse cx="' + (x0 + W * 0.37).toFixed(1) + '" cy="' + (y0 + H * 0.22).toFixed(1) + '" rx="' + (W * 0.185).toFixed(1) + '" ry="' + (H * 0.11).toFixed(1) + '" fill="url(#bSpec)" transform="rotate(-18 ' + (x0 + W * 0.37).toFixed(1) + " " + (y0 + H * 0.22).toFixed(1) + ')"/>' +
+      '<circle cx="' + (x0 + W * 0.65).toFixed(1) + '" cy="' + (y0 + H * 0.19).toFixed(1) + '" r="' + (W * 0.024).toFixed(2) + '" fill="#fff" fill-opacity=".9"/></g>' +
+      '<use href="#bp' + n + '" fill="url(#bEdge)"/></g>' +
+      '<use href="#bp' + n + '" fill="none" stroke="#d68c00" stroke-opacity=".28" stroke-width="1"/>' +
+      '<g transform="translate(0 ' + drop.toFixed(2) + ')"><g class="b-up"><g class="b-look">' + eye(cx - 1.6 * fs) + eye(cx + 1.6 * fs) + "</g></g></g>" +
+      "</g></g></svg>";
+    return '<div class="bstage st-' + state + (opts.loop ? " loop" : "") + (k >= 5 ? " slow" : "") + (still ? " static" : "") + '" style="width:' + stageW.toFixed(0) + "px;height:" + stageH.toFixed(0) + 'px"' +
+      (opts.label ? ' role="img" aria-label="' + esc(opts.label) + '"' : ' aria-hidden="true"') + ">" +
+      (opts.noSphere ? "" : '<div class="sphere pal-' + pal + '" style="width:' + sphereD.toFixed(0) + "px;height:" + sphereD.toFixed(0) + "px;left:" + ((stageW - sphereD) / 2).toFixed(0) + "px;top:" + ((stageH - sphereD) / 2).toFixed(0) + 'px"></div>') +
+      svg + "</div>";
+  }
+  function mini(k, label) { return blob(k, { f: 0.62, still: true, noSphere: true, box: 40, boxH: 40, label: label }); }
+
+  // ---------- icons ----------
+  var ICON = {
+    back: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2d2c2b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+    home: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>',
+    stories: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 5h14v10H10l-5 4z"/></svg>',
+    learned: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.2 5.6L20 9.5l-4.4 3.8L17 19l-5-3-5 3 1.4-5.7L4 9.5l5.8-.9z"/></svg>',
+    blob: '<svg width="22" height="22" viewBox="0 0 100 90" fill="none" stroke="currentColor" stroke-width="9"><path d="' + V[0] + '"/></svg>',
+    tick: '<svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#ffe9a6"/><path d="M6 10.5l2.6 2.5L14 7.5" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  };
+
+  // ---------- routing ----------
+  var app = document.getElementById("app");
+  var overlay = null; // { type: "popup" | "after", ... }
+  function go(h) { if (location.hash === h) render(); else location.hash = h; }
+  function route() {
+    var h = (location.hash || "").slice(1);
+    if (!S.onboarded && !/^(intro|step[1-5])$/.test(h)) return { name: "intro" };
+    if (!h) return { name: "home" };
+    var p = h.split("/");
+    return { name: p[0], arg: p.slice(1).join("/") };
+  }
+
+  function tabbar(active) {
+    var tabs = [["home", "Home"], ["stories", "Stories"], ["learned", "Learned"], ["blob", "Blob"]];
+    return '<nav class="tabbar" aria-label="Main">' + tabs.map(function (t) {
+      return '<a class="tab" href="#' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : "") + '><span class="ic">' + ICON[t[0]] + "</span>" + t[1] + "</a>";
+    }).join("") + "</nav>";
+  }
+
+  // ---------- onboarding ----------
+  var OB = [
+    { h: "This is the blob.", body: "The blob doesn't know how to feel. Will you help it find out?", btn: "Help the blob", blob: { k: 1, state: "wait" }, display: true },
+    { h: "It feels something.", body: "Your watch notices when your heart rate rises. The blob feels it too. It might flatten, or it might just bounce along.", btn: "Next", blob: { k: 1, state: "bounce" } },
+    { h: "It tells you the story.", body: "Each evening, the blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.",
+      quote: "“At 3:10 my heart started racing. I'd been sitting still for over an hour.”", btn: "Next", blob: { k: 1, state: "wait" } },
+    { h: "You help it understand.", body: "You fill in what was going on for the blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat" } },
+    { h: "It learns to guess.", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it's right or wrong.",
+      quote: "“Sitting still, heart racing. I think that was my pressure again.”", btn: "Next", blob: { k: 1, state: "work" } },
+    { h: "It asks for a little care.", body: "When it's flattened, the blob might ask you to breathe slowly with it, or rest. As your heart settles, you'll see it puff back up.",
+      ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Meet the blob", blob: { k: 1, state: "puff" } }
+  ];
+  function viewOnboarding(i) {
+    var o = OB[i];
+    var head = i === 0 ? '<div class="ob-head"></div>' :
+      '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" aria-label="Step ' + i + ' of 5">' +
+      [1, 2, 3, 4, 5].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
+    return '<div class="screen"><div class="ob">' + head +
+      '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, loop: true, box: 330, label: "The blob" }) + "</div>" +
+      "<h1" + (o.display ? ' class="display"' : "") + ">" + o.h + '</h1><p class="body">' + o.body + "</p>" +
+      (o.quote ? '<p class="quote">' + o.quote + "</p>" : "") +
+      (o.ticks ? '<ul class="ticks">' + o.ticks.map(function (t) { return "<li>" + ICON.tick + "<span>" + t + "</span></li>"; }).join("") + "</ul>" : "") +
+      '<button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button></div></div>";
+  }
+
+  // ---------- home ----------
+  function todayLevel() {
+    var t = todayDay(), flats = t.moments.filter(answered).map(function (m) { return careAfter(m); });
+    return flats.length ? Math.max(1, Math.round(mean(flats))) : 2;
+  }
+  function careAfter(m) { var c = S.care[m.id], a = ans(m); return c && c.settled ? Math.max(1, a.flat - 2) : a.flat; }
+  var LEVEL_LINE = { 1: "Round and bouncing today.", 2: "Mostly bouncing along today.", 3: "A little squashed today.", 4: "Fairly flattened today.", 5: "Quite flat today.", 6: "Very flat today.", 7: "Completely flattened today." };
+  function homeChart(d) {
+    var W = 320, H = 150, L = 6, R = 6, T = 14, B = 22, from = 360, to = 1080;
+    var vals = d.series.filter(function (p) { return p[0] >= from && p[0] <= NOW; }).map(function (p) { return p[1]; });
+    var lo = Math.min(d.rhr - 8, Math.min.apply(null, vals) - 4), hi = Math.max(d.rhr + 40, Math.max.apply(null, vals) + 6);
+    var x = function (m) { return L + (m - from) / (to - from) * (W - L - R); };
+    var y = function (b) { return T + (1 - (b - lo) / (hi - lo)) * (H - T - B); };
+    var g = "";
+    d.moments.forEach(function (m) {
+      var mv = isMoving(m), c = mv ? "#f47d31" : "#5f2b89";
+      g += '<rect x="' + x(m.start).toFixed(1) + '" y="' + T + '" width="' + Math.max(4, x(m.end) - x(m.start)).toFixed(1) + '" height="' + (H - T - B) + '" rx="6" fill="' + c + '" fill-opacity=".1"/>';
+    });
+    d.series.forEach(function (p) {
+      if (p[0] < from || p[0] > NOW || !p[2]) return;
+      var h = Math.min(p[2], 600) / 600 * 22;
+      g += '<rect x="' + (x(p[0]) - 1.2).toFixed(1) + '" y="' + (H - B - h).toFixed(1) + '" width="2.4" height="' + h.toFixed(1) + '" rx="1" fill="#2d2c2b" fill-opacity=".12"/>';
+    });
+    var th = d.rhr + 25;
+    g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(th).toFixed(1) + '" y2="' + y(th).toFixed(1) + '" stroke="#5c5853" stroke-width="1" stroke-dasharray="4 4" stroke-opacity=".6"/>' +
+      '<text x="' + (W - R) + '" y="' + (y(th) - 4).toFixed(1) + '" text-anchor="end">rest + 25</text>';
+    var pts = d.series.filter(function (p) { return p[0] >= from && p[0] <= NOW; });
+    g += '<path d="' + pts.map(function (p, i) { return (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1); }).join("") + '" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    d.moments.forEach(function (m) {
+      g += '<circle cx="' + x(m.peakMin).toFixed(1) + '" cy="' + y(m.bpm).toFixed(1) + '" r="5" fill="' + (isMoving(m) ? "#f47d31" : "#5f2b89") + '" stroke="#fdfcfc" stroke-width="2"/>';
+    });
+    g += '<line x1="' + x(NOW).toFixed(1) + '" x2="' + x(NOW).toFixed(1) + '" y1="' + (T - 6) + '" y2="' + (H - B) + '" stroke="#2d2c2b" stroke-width="1"/>' +
+      '<text x="' + (x(NOW) - 4).toFixed(1) + '" y="' + (T - 2) + '" text-anchor="end" style="font-weight:700;fill:#2d2c2b">Now</text>';
+    [[360, "6am"], [540, "9am"], [720, "12pm"], [900, "3pm"], [1080, "6pm"]].forEach(function (t, i) {
+      g += '<text x="' + x(t[0]).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === 0 ? "start" : i === 4 ? "end" : "middle") + '">' + t[1] + "</text>";
+    });
+    return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Its heart rate from 6am to now, with ' + d.moments.length + ' moments when it rose">' + g + "</svg>";
+  }
+  function viewHome() {
+    var d = todayDay(), lv = todayLevel(), n = d.moments.length;
+    var waiting = storiesOf(d).filter(function (m) { return !ans(m); }).length;
+    var h = '<div class="screen with-tabs"><p class="date">' + longDate(TODAY) + '</p><h1 class="title">The blob\'s day</h1>' +
+      '<section class="card blobcard">' + blob(lv, { f: 1.9, box: 160, label: "The blob, " + lv + " of 7 flat" }) +
+      '<div><p class="caption" style="font-weight:500">How flat it is</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small" style="margin:8px 0 12px">' + LEVEL_LINE[lv] + "</p>" +
+      '<span class="chip"><i class="dot" style="background:#5f2b89"></i>' + n + " moment" + (n === 1 ? "" : "s") + " today</span></div></section>" +
+      '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
+      '<div class="stats"><div class="stat"><b>' + Math.round(d.rhr) + '</b><span>resting bpm</span></div><div class="stat"><b>' + d.steps.toLocaleString("en-AU") + '</b><span>steps</span></div><div class="stat"><b>' + n + "</b><span>moments</span></div></div>";
+    if (d.nRises > 4) h += '<p class="small" style="margin-top:10px">The blob will ask you about the biggest 4 tonight.</p>';
+    h += waiting
+      ? '<section class="card dark ready"><div><h2 class="section">' + waiting + " stor" + (waiting === 1 ? "y" : "ies") + ' ready tonight</h2><p class="small smoke" style="margin-top:4px">Help it understand its day</p></div><button class="btn small-btn" data-act="read">Read</button></section>'
+      : '<section class="card dark ready"><div><h2 class="section">It knows its day</h2><p class="small smoke" style="margin-top:4px">Every story is saved. See them in Stories.</p></div><a class="btn small-btn" href="#stories">Stories</a></section>';
+    return h + "</div>" + tabbar("home");
+  }
+
+  // ---------- popup ----------
+  function nextStory(d) { return storiesOf(d || todayDay()).filter(function (m) { return !ans(m); })[0]; }
+  function viewPopup(m) {
+    var g = selfGuess(m), lv = g.stage >= 2 ? g.flat : 4;
+    return '<div class="backdrop" data-act="close"></div><div class="sheet" role="dialog" aria-label="The blob has a story"><div class="grab"></div>' +
+      '<div style="display:flex;justify-content:center">' + blob(lv, { f: 1.6, pal: "dusk", box: 170, boxH: 150 }) + "</div>" +
+      '<p class="meta">' + ampm(m.peakMin) + " · " + (MOVING[m.watch] ? "On the move" : "Sitting still") + "</p><h2>The blob has a story</h2>" +
+      '<p class="vig">' + esc(vignette(m)) + "</p>" +
+      '<div class="chips"><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div>" +
+      '<button class="btn" data-go="#story/' + m.id + '">Help it understand</button><button class="textbtn" data-act="close">Not now</button></div>';
+  }
+
+  // ---------- story decision ----------
+  var draft = {};
+  function draftFor(m) {
+    if (draft.id !== m.id) {
+      var a = S.answers[m.id] || ans(m), g = selfGuess(m);
+      draft = { id: m.id, activity: (a && a.activity) || m.watch, due: a ? a.due : null, onTop: a ? a.onTop : null,
+        flat: a && a.flat ? a.flat : g.stage >= 2 ? g.flat : null, guess: g };
+    }
+    return draft;
+  }
+  function viewStory(id) {
+    var m = byId[id];
+    if (!m) return viewHome();
+    var d = m.day, list = storiesOf(d), i = list.indexOf(m), dr = draftFor(m), g = dr.guess;
+    var lv = dr.flat || (g.stage >= 2 ? g.flat : 4);
+    var opt = function (key, v, label) { return '<button class="opt" role="radio" aria-checked="' + (dr[key] === v) + '" data-act="d" data-k="' + key + '" data-v="' + esc(JSON.stringify(v)) + '">' + label + "</button>"; };
+    var h = '<div class="screen"><div class="dhead"><button class="back" data-act="storyback" aria-label="Not now">' + ICON.back + "</button>" +
+      '<div class="pdots">' + list.map(function (_, j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + '</div><span class="count">' + (i + 1) + " of " + list.length + "</span></div>" +
+      '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + lv + " of 7 flat" }) + "</div>" +
+      '<div class="storycard"><p class="vig">' + esc(vignette(m)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + '</span><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div></div>" +
+      '<div class="q"><h3>What was I doing?</h3><p class="help">My watch thinks I was ' + VOICE[m.watch] + '.</p><div class="opts" role="radiogroup" aria-label="What was I doing?">' +
+      ACTS.map(function (a) { return opt("activity", a, a); }).join("") + "</div></div>" +
+      '<div class="q"><h3>Was something due for me?</h3><div class="toggles" role="radiogroup" aria-label="Was something due for me?">' + opt("due", true, "Yes") + opt("due", false, "No") + "</div></div>" +
+      '<div class="q"><h3>Was I on top of things?</h3><div class="toggles" role="radiogroup" aria-label="Was I on top of things?">' + opt("onTop", true, "Yes") + opt("onTop", false, "Not really") + "</div></div>" +
+      '<div class="q"><h3>How flat did I get?</h3><div class="flats" role="radiogroup" aria-label="How flat did I get?">' +
+      [1, 2, 3, 4, 5, 6, 7].map(function (k) { return '<button class="ftile" role="radio" aria-checked="' + (dr.flat === k) + '" aria-label="' + k + ' of 7" data-act="d" data-k="flat" data-v="' + k + '">' + mini(k) + "<span>" + k + "</span></button>"; }).join("") +
+      '</div><div class="fends"><span>Not flat at all</span><span>Completely flat</span></div></div>' +
+      '<div class="actions"><button class="btn" data-act="savestory"' + (dr.flat ? "" : " disabled style=\"opacity:.45\"") + '>Save this story</button><button class="textbtn" data-act="cant">I can\'t remember</button></div></div>';
+    return h;
+  }
+
+  function reflection(m, a, g) {
+    var k = kind(!!MOVING[a.activity], a.flat), names = { Pressure: "pressure", Overload: "overload", Effort: "effort", Neither: "nothing much" };
+    if (a.activity !== m.watch) return "Oh, I was " + VOICE[a.activity] + ", not " + VOICE[m.watch] + ". I'll remember that.";
+    if (g.stage >= 2 && (k !== g.kind || Math.abs(a.flat - g.flat) >= 2)) {
+      return "Oh, so that one was " + names[k] + ", not " + names[g.kind] + ". I was " + VOICE[a.activity] + ". I'll remember that.";
+    }
+    if (g.stage === 3) return "I knew it. That's my " + names[k] + " again.";
+    return "";
+  }
+  var CARE_ASK = { Pressure: "I think I need to breathe.", Overload: "Can we slow down first?", Effort: "I just need to rest.", Neither: "I'm fine, actually. Not every rise is stress." };
+  function viewAfter(o) {
+    var m = byId[o.id], a = ans(m), k = kind(!!MOVING[a.activity], a.flat);
+    var showBlob = o.reflect ? blob(a.flat >= 4 ? 3 : 1, { f: 1.6, state: "work", box: 170, boxH: 150 }) : blob(a.flat, { f: 1.6, box: 170, boxH: 150 });
+    var h = '<div class="backdrop"></div><div class="sheet" role="dialog" aria-label="The blob"><div class="grab"></div><div style="display:flex;justify-content:center">' + showBlob + "</div>";
+    if (o.reflect) h += '<p class="vig" style="font-weight:500">' + esc(o.reflect) + "</p>";
+    h += '<h2 style="margin-top:14px">' + CARE_ASK[k] + "</h2><div style=\"height:16px\"></div>";
+    if (k === "Neither") h += '<button class="btn" data-act="afternext">' + (o.last ? "Back to its day" : "Next story") + "</button>";
+    else h += '<button class="btn" data-go="#care/' + m.id + '">' + (k === "Effort" ? "Okay, let's rest" : k === "Overload" ? "Let's slow down" : "Breathe with me") + '</button><button class="textbtn" data-act="afternext">Not now</button>';
+    return h + "</div>";
+  }
+
+  // ---------- care ----------
+  var careRun = null;
+  function viewCare(id) {
+    var m = byId[id], k = m ? kind(!!MOVING[ans(m).activity], ans(m).flat) : "Pressure", lv = m ? ans(m).flat : 4;
+    var title = k === "Effort" ? "Rest with me" : "Breathe with me";
+    var sub = k === "Effort" ? "Have some water, stretch, or sit for a minute. No need to soothe anything." : k === "Overload" ? "Let's just pause for a moment first." : "In for 4, out for 6. Follow my shape.";
+    return '<div class="screen"><div class="care"><div class="dhead"><button class="back" data-act="careexit" aria-label="Not now">' + ICON.back + "</button><span></span><span></span></div>" +
+      '<div class="ob-blob" id="careblob">' + blob(lv, { f: 2.4, state: k === "Effort" ? "wait" : "breathe", pal: "sage", box: 300 }) + "</div>" +
+      "<h1>" + title + '</h1><p class="small" style="margin-top:8px">' + sub + '</p><p class="cue" id="cue" aria-live="polite" style="margin-top:20px"></p>' +
+      '<p class="bpm" id="bpm"></p><button class="btn" data-act="caredone" id="caredone">I\'m done</button><button class="textbtn" data-act="careexit">Not now</button></div></div>';
+  }
+  function startCare(id) {
+    stopCare();
+    var m = byId[id], k = m ? kind(!!MOVING[ans(m).activity], ans(m).flat) : "Pressure", rest = m ? m.day.rhr : todayDay().rhr;
+    var start = m ? m.bpm - 6 : rest + 22, t0 = Date.now(), total = k === "Effort" ? 30000 : 60000, pause = k === "Overload" ? 5000 : 0;
+    var cue = document.getElementById("cue"), bpm = document.getElementById("bpm");
+    careRun = { id: id, k: k, start: start, rest: rest, t0: t0, total: total + pause, timer: setInterval(tick, 250), settled: false };
+    function tick() {
+      var t = Date.now() - t0, frac = Math.min(1, Math.max(0, t - pause) / total);
+      var now = Math.round(rest + 4 + (start - rest - 4) * Math.exp(-3 * frac));
+      careRun.bpmNow = now;
+      if (bpm) bpm.innerHTML = "My heart <b>" + now + "</b> bpm · resting " + Math.round(rest);
+      if (cue) {
+        if (k === "Effort") cue.textContent = "Resting…";
+        else if (t < pause) cue.textContent = "Pause…";
+        else cue.textContent = ((t - pause) % 10000) < 4000 ? "Breathe in" : "Breathe out";
+      }
+      if (t >= careRun.total) finishCare(true);
+    }
+    if (k !== "Effort" && pause) {
+      // the pacer starts after the pause
+      var cb = document.querySelector("#careblob .bstage");
+      if (cb) { cb.classList.remove("st-breathe"); cb.classList.add("st-wait"); setTimeout(function () { if (cb) { cb.classList.remove("st-wait"); cb.classList.add("st-breathe"); } }, pause); }
+    }
+    tick();
+  }
+  function stopCare() { if (careRun) clearInterval(careRun.timer); }
+  function finishCare(auto) {
+    if (!careRun) return;
+    stopCare();
+    var r = careRun, settled = r.bpmNow - r.rest <= 10;
+    careRun = null;
+    var m = byId[r.id];
+    if (m) { S.care[r.id] = { kind: r.k, type: r.k === "Effort" ? "rest" : "breathe", from: r.start, to: r.bpmNow, settled: settled }; save(); }
+    var lv = m ? ans(m).flat : 4;
+    var host = document.getElementById("careblob");
+    if (host) host.innerHTML = settled ? blob(1, { f: 2.4, state: "puff", box: 300 }) : blob(lv, { f: 2.4, state: lv >= 4 ? "flat" : "wait", pal: "sage", box: 300 });
+    var cue = document.getElementById("cue"), btn = document.getElementById("caredone");
+    if (cue) cue.textContent = settled ? "I feel rounder already." : "That's okay, I'm still a bit flat.";
+    if (btn) { btn.textContent = m ? (nextStory(m.day) ? "Next story" : "Back to its day") : "Done"; btn.setAttribute("data-act", "careexit"); }
+    var nn = document.querySelector(".care .textbtn"); if (nn) nn.hidden = true;
+  }
+
+  // ---------- stories tab ----------
+  function statusOf(m) {
+    var a = ans(m);
+    if (!a) return '<span class="status wait">Waiting</span>';
+    if (a.cantRemember) return '<span class="status">Can\'t remember</span>';
+    return '<span class="status">' + a.flat + " of 7</span>";
+  }
+  function row(m) {
+    var a = ans(m);
+    return '<li><button class="row" data-go="#story/' + m.id + '"><span class="mini">' + (a && a.flat ? mini(a.flat) : mini(1)) + '</span><span class="grow"><b>' + ampm(m.peakMin) + "</b><span>" + esc(activityOf(m)) + " · +" + m.lift + " bpm</span></span>" + statusOf(m) + "</button></li>";
+  }
+  function viewStories() {
+    var h = '<div class="screen with-tabs"><p class="date">Its stories</p><h1 class="title">Stories</h1>';
+    DAYS.slice().reverse().forEach(function (d) {
+      var list = storiesOf(d).sort(function (a, b) { return a.peakMin - b.peakMin; });
+      if (!list.length) return;
+      h += '<div class="group"><h2>' + (d.date === TODAY ? "Tonight" : shortDate(d.date)) + '</h2><ul class="rows">' + list.map(row).join("") + "</ul></div>";
+    });
+    return h + "</div>" + tabbar("stories");
+  }
+
+  // ---------- learned tab ----------
+  function links() {
+    var still = [], moving = [];
+    ALL.forEach(function (m) { if (answered(m)) (isMoving(m) ? moving : still).push(ans(m).flat); });
+    var whole = function (d) {
+      var f = d.moments.filter(answered).map(function (m) { return ans(m).flat; });
+      return d.whole != null ? d.whole : f.length ? Math.round(mean(f)) : null;
+    };
+    var hi = [], lo = [];
+    DAYS.forEach(function (d) { var w = whole(d); if (w == null) return; (d.steps >= 10000 ? hi : lo).push(w); });
+    var aH = [], aL = [];
+    for (var i = 0; i < DAYS.length - 1; i++) { var w = whole(DAYS[i]); if (w == null) continue; if (w >= 4) aH.push(DAYS[i + 1].rhr); else if (w <= 2) aL.push(DAYS[i + 1].rhr); }
+    var nDays = DAYS.filter(function (d) { return whole(d) != null; }).length;
+    var L = [
+      { id: "still", name: "Sitting still vs moving", diff: mean(still) - mean(moving), thr: 1, n: still.length && moving.length ? nDays : 0,
+        text: "When my heart raced while I sat still, I got to " + f1(mean(still)) + ". While moving, " + f1(mean(moving)) + ".",
+        idea: "Before a long sit at the desk, let's move for 10 minutes first." },
+      { id: "steps", name: "Steps and the whole day", diff: mean(lo) - mean(hi), thr: 0.8, n: hi.length && lo.length ? nDays : 0,
+        text: "On 10,000+ step days I ended up " + f1(mean(hi)) + ". On quieter days, " + f1(mean(lo)) + ".",
+        idea: "Quieter days leave me flatter. Let's get a walk in before the evening." },
+      { id: "rhr", name: "My resting heartbeat the next day", diff: mean(aH) - mean(aL), thr: 1.5, n: aH.length && aL.length ? nDays : 0,
+        text: "After heavy days my resting heartbeat was " + f1(mean(aH)) + " bpm. After light days, " + f1(mean(aL)) + " bpm.",
+        idea: "After a heavy day, let's start the next one gently." }
+    ];
+    L.forEach(function (l) { l.chip = l.n < 6 ? "Needs more days" : Math.abs(l.diff) < l.thr ? "Not sure yet" : "Starting to see it"; });
+    return L;
+  }
+  function viewLearned() {
+    var h = '<div class="screen with-tabs"><p class="date">What it has learned about itself</p><h1 class="title">Learned</h1>';
+    var groups = ACTS.map(function (a) {
+      var f = ALL.filter(function (m) { return answered(m) && activityOf(m) === a; }).map(function (m) { return ans(m).flat; });
+      return { a: a, n: f.length, avg: mean(f) };
+    }).filter(function (g) { return g.n >= 2; });
+    h += '<section class="card"><h2 class="section">What I know about myself</h2>' + (groups.length ? groups.map(function (g) {
+      return '<div class="know"><span class="mini">' + mini(Math.round(g.avg)) + "</span><p><b>" + g.a + "</b><br><span class=\"smoke\">I usually get to about a " + Math.round(g.avg) + " · " + g.n + " moments</span></p></div>";
+    }).join("") : '<p class="small" style="margin-top:8px">Help me with a few stories and I\'ll start to know.</p>') + "</section>";
+    h += '<section class="card"><h2 class="section">Patterns I\'m noticing</h2>' + links().map(function (l) {
+      var on = l.chip === "Starting to see it" && l.diff > 0, v = S.sugg[l.id];
+      return '<div class="link"><div class="top"><b>' + l.name + '</b><span class="badge' + (l.chip === "Starting to see it" ? " yes" : "") + '">' + l.chip + "</span></div><p>" + esc(l.text) + "</p>" +
+        (on ? '<p style="color:var(--ink);font-weight:500;margin-top:10px">' + esc(l.idea) + '</p><div class="toggles" style="margin-top:10px" role="radiogroup" aria-label="' + esc(l.idea) + '">' +
+          '<button class="opt" role="radio" aria-checked="' + (v === "try") + '" data-act="sugg" data-k="' + l.id + '" data-v="try">Let\'s try it</button>' +
+          '<button class="opt" role="radio" aria-checked="' + (v === "no") + '" data-act="sugg" data-k="' + l.id + '" data-v="no">Not for us</button></div>' : "") + "</div>";
+    }).join("") + "</section>";
+    var helped = {};
+    Object.keys(S.care).forEach(function (id) { var c = S.care[id]; (helped[c.kind] = helped[c.kind] || { n: 0, ok: 0, type: c.type }).n++; if (c.settled) helped[c.kind].ok++; });
+    var lines = Object.keys(helped).map(function (k) {
+      var x = helped[k], what = x.type === "rest" ? "A rest" : "Slow breathing";
+      return x.ok ? what + " puffs me back up after " + k.toLowerCase() + "." : what + " hasn't puffed me back up after " + k.toLowerCase() + " yet.";
+    });
+    h += '<section class="card"><h2 class="section">What helps me</h2>' + (lines.length ? lines.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
+      '<p class="small" style="margin-top:8px">When I ask for a little care, I\'ll remember what helped.</p>') + "</section>";
+    return h + "</div>" + tabbar("learned");
+  }
+
+  // ---------- blob tab ----------
+  function viewBlobTab() {
+    var lv = todayLevel(), mine = ALL.filter(answered);
+    var kinds = { Pressure: [], Overload: [], Effort: [], Neither: [] };
+    mine.forEach(function (m) { kinds[kind(isMoving(m), ans(m).flat)].push(m); });
+    var h = '<div class="screen with-tabs"><p class="date">About the blob</p><h1 class="title">The blob</h1>' +
+      '<div style="display:flex;justify-content:center;margin-top:8px">' + blob(lv, { f: 2.4, box: 280, label: "The blob" }) + "</div>" +
+      '<section class="card"><h2 class="section">My feelings so far</h2><p class="small" style="margin-top:4px">Every moment you helped me with, at how flat I got.</p>';
+    Object.keys(kinds).forEach(function (k) {
+      var list = kinds[k];
+      h += '<div class="kindrow" style="margin-top:12px"><b>' + k + '</b><span class="smoke">' + list.length + "</span></div>" +
+        (list.length ? '<div class="collection">' + list.slice(-10).map(function (m) { return '<button data-go="#story/' + m.id + '" aria-label="' + esc(shortDate(m.date) + ", " + ampm(m.peakMin) + ", " + ans(m).flat + " of 7") + '">' + mini(ans(m).flat) + "</button>"; }).join("") + "</div>" : "");
+    });
+    h += '</section><section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
+    return h + "</div>" + tabbar("blob");
+  }
+
+  // ---------- render ----------
+  function render() {
+    stopCare();
+    var r = route(), html;
+    if (r.name === "intro") html = viewOnboarding(0);
+    else if (/^step[1-5]$/.test(r.name)) html = viewOnboarding(+r.name.slice(4));
+    else if (r.name === "story") html = viewStory(r.arg);
+    else if (r.name === "care") html = viewCare(r.arg);
+    else if (r.name === "stories") html = viewStories();
+    else if (r.name === "learned") html = viewLearned();
+    else if (r.name === "blob") html = viewBlobTab();
+    else html = viewHome();
+    if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
+    if (overlay && overlay.type === "after") html += viewAfter(overlay);
+    app.innerHTML = html;
+    if (r.name === "care") startCare(r.arg);
+    if (r.name === "home" && S.onboarded && !S.popupSeen && !overlay) {
+      var n = nextStory();
+      if (n) { S.popupSeen = true; save(); setTimeout(function () { if (route().name === "home") { overlay = { type: "popup", id: n.id }; render(); } }, 900); }
+    }
+  }
+  function rerenderKeepScroll() {
+    var sc = app.querySelector(".screen"), top = sc ? sc.scrollTop : 0;
+    render();
+    sc = app.querySelector(".screen"); if (sc) sc.scrollTop = top;
+  }
+
+  function afterSave(m) {
+    var list = storiesOf(m.day), i = list.indexOf(m);
+    var next = list.slice(i + 1).filter(function (x) { return !ans(x); })[0] || list.filter(function (x) { return !ans(x); })[0];
+    return next;
+  }
+
+  app.addEventListener("click", function (ev) {
+    var el = ev.target.closest("[data-go],[data-act]");
+    if (!el) return;
+    var go_ = el.getAttribute("data-go");
+    if (go_) { overlay = null; draft = {}; go(go_); return; }
+    var act = el.getAttribute("data-act"), v = el.getAttribute("data-v"), k = el.getAttribute("data-k");
+    var r = route();
+    if (act === "ob") {
+      var i = +v;
+      if (i === 5) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1));
+    } else if (act === "read") {
+      var n = nextStory(); if (n) { overlay = { type: "popup", id: n.id }; render(); }
+    } else if (act === "close") { overlay = null; render(); }
+    else if (act === "d") {
+      draft[k] = JSON.parse(v);
+      if (k === "flat") { var host = document.getElementById("dblob"); if (host) host.innerHTML = blob(draft.flat, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + draft.flat + " of 7 flat" }); }
+      var sc = app.querySelector(".screen"), top = sc.scrollTop, blobHtml = document.getElementById("dblob").innerHTML;
+      app.innerHTML = viewStory(r.arg);
+      document.getElementById("dblob").innerHTML = blobHtml;
+      app.querySelector(".screen").scrollTop = top;
+    } else if (act === "savestory" || act === "cant") {
+      var m = byId[r.arg], dr = draftFor(m), g = dr.guess;
+      if (act === "savestory" && !dr.flat) return;
+      S.answers[m.id] = act === "cant"
+        ? { activity: dr.activity, fitbitGuess: m.watch, corrected: dr.activity !== m.watch, due: null, onTop: null, flat: null, cantRemember: true }
+        : { activity: dr.activity, fitbitGuess: m.watch, corrected: dr.activity !== m.watch, due: dr.due, onTop: dr.onTop, flat: dr.flat, cantRemember: false };
+      save(); draft = {};
+      if (act === "cant") { var nx = afterSave(m); go(nx ? "#story/" + nx.id : "#home"); return; }
+      overlay = { type: "after", id: m.id, reflect: reflection(m, S.answers[m.id], g), last: !afterSave(m) };
+      render();
+    } else if (act === "afternext") {
+      var mm = byId[overlay.id]; overlay = null;
+      var nx2 = afterSave(mm); go(nx2 ? "#story/" + nx2.id : "#home");
+    } else if (act === "storyback") { draft = {}; go("#home"); }
+    else if (act === "caredone") finishCare(false);
+    else if (act === "careexit") {
+      var id = r.arg, m3 = byId[id]; stopCare(); careRun = null;
+      var nx3 = m3 && afterSave(m3);
+      go(nx3 ? "#story/" + nx3.id : id === "free" ? "#blob" : "#home");
+    } else if (act === "sugg") { S.sugg[k] = S.sugg[k] === v ? null : v; save(); rerenderKeepScroll(); }
+  });
+  window.addEventListener("hashchange", function () { overlay = null; render(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && overlay && overlay.type === "popup") { overlay = null; render(); } });
+
+  // expose for testing in the console
+  window.__blob = { S: S, selfGuess: selfGuess, vignette: vignette, byId: byId, ALL: ALL };
+  render();
+})();
