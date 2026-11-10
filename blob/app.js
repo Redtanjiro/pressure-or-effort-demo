@@ -133,6 +133,33 @@
         '<ellipse cx="' + (x - 0.2 * fs).toFixed(2) + '" cy="' + (eyeY - 0.4 * fs).toFixed(2) + '" rx="' + (0.32 * fs).toFixed(2) + '" ry="' + (0.32 * fs).toFixed(2) + '" fill="#fff" fill-opacity=".95"/></g></g>';
     }
     var bub = function (c, rx, ry, r) { return '<circle cx="' + (x0 + rx * W).toFixed(1) + '" cy="' + (y0 + ry * H).toFixed(1) + '" r="' + (r * W).toFixed(2) + '" fill="url(#bBub)" stroke="#fff" stroke-opacity=".65" stroke-width=".6"/>'; };
+    var ey = eyeY + drop, ex = 1.6 * fs, F = function (v) { return v.toFixed(1); };
+    var ACC = {
+      // an empty thought bubble: nothing in there yet
+      brain: '<g class="a-think"><circle class="a-t1" cx="' + F(cx + W * 0.24) + '" cy="' + F(y0 + H * 0.02) + '" r="' + F(fs * 0.5) + '" fill="#fff" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<circle class="a-t2" cx="' + F(cx + W * 0.33) + '" cy="' + F(y0 - H * 0.1) + '" r="' + F(fs * 0.8) + '" fill="#fff" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<g class="a-cloud"><path d="M' + F(cx + W * 0.26) + " " + F(y0 - H * 0.2) + "a" + F(fs * 1.6) + " " + F(fs * 1.4) + " 0 0 1 " + F(fs * 2.4) + " " + F(-fs * 1.9) + "a" + F(fs * 1.9) + " " + F(fs * 1.7) + " 0 0 1 " + F(fs * 3.4) + " 0a" + F(fs * 1.6) + " " + F(fs * 1.4) + " 0 0 1 " + F(fs * 1.4) + " " + F(fs * 2.9) + "a" + F(fs * 1.5) + " " + F(fs * 1.3) + " 0 0 1 " + F(-fs * 2.2) + " " + F(fs * 1.9) + "h" + F(-fs * 3.2) + "a" + F(fs * 1.5) + " " + F(fs * 1.3) + " 0 0 1 " + F(-fs * 1.8) + " " + F(-fs * 2.9) + 'z" fill="#fff" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<circle class="a-fly" cx="' + F(cx + W * 0.26 + fs * 3.4) + '" cy="' + F(y0 - H * 0.2 - fs * 0.6) + '" r="' + F(fs * 0.22) + '" fill="#cfc7c0"/></g></g>',
+      // reading glasses and an open book
+      read: '<g fill="none" stroke="#2d2c2b" stroke-width="' + F(fs * 0.28) + '"><circle cx="' + F(cx - ex) + '" cy="' + F(ey) + '" r="' + F(fs * 1.55) + '"/><circle cx="' + F(cx + ex) + '" cy="' + F(ey) + '" r="' + F(fs * 1.55) + '"/>' +
+        '<path d="M' + F(cx - ex + fs * 1.55) + " " + F(ey - fs * 0.2) + "q" + F(ex - fs * 1.55) + " " + F(-fs * 0.7) + " " + F(2 * (ex - fs * 1.55)) + ' 0"/></g>' +
+        '<g class="a-book"><path d="M' + F(cx) + " " + F(y0 + H * 0.66) + "l" + F(-W * 0.36) + " " + F(-H * 0.07) + "v" + F(H * 0.24) + "l" + F(W * 0.36) + " " + F(H * 0.07) + "l" + F(W * 0.36) + " " + F(-H * 0.07) + "v" + F(-H * 0.24) + 'z" fill="#5f2b89"/>' +
+        '<path d="M' + F(cx) + " " + F(y0 + H * 0.64) + "l" + F(-W * 0.33) + " " + F(-H * 0.08) + "v" + F(H * 0.23) + "l" + F(W * 0.33) + " " + F(H * 0.08) + "l" + F(W * 0.33) + " " + F(-H * 0.08) + "v" + F(-H * 0.23) + 'z" fill="#fdfcfc" stroke="#e2ded9" stroke-width=".8"/>' +
+        '<path d="M' + F(cx) + " " + F(y0 + H * 0.64) + "v" + F(H * 0.23) + '" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<g stroke="#d9d3cd" stroke-width="1">' + [0, 1, 2].map(function (j) { var yy = y0 + H * (0.62 + j * 0.05); return '<path d="M' + F(cx - W * 0.27) + " " + F(yy) + "l" + F(W * 0.22) + " " + F(H * 0.05) + "M" + F(cx + W * 0.05) + " " + F(yy + H * 0.05) + "l" + F(W * 0.22) + " " + F(-H * 0.05) + '"/>'; }).join("") + "</g></g>",
+      // not sure: a question mark and a sweat drop
+      puzzled: '<text class="a-q" x="' + F(cx + W * 0.2) + '" y="' + F(y0 - H * 0.12) + '" font-family="DM Sans, system-ui, sans-serif" font-weight="700" font-size="' + F(fs * 5.5) + '" fill="#5f2b89">?</text>' +
+        '<path class="a-drop" d="M' + F(x0 + W * 0.14) + " " + F(y0 + H * 0.12) + "c" + F(fs * 0.7) + " " + F(fs * 1.2) + " " + F(fs * 1.1) + " " + F(fs * 1.8) + " " + F(fs * 1.1) + " " + F(fs * 2.4) + "a" + F(fs * 1.1) + " " + F(fs * 1.1) + " 0 0 1 " + F(-fs * 2.2) + " 0c0 " + F(-fs * 0.6) + " " + F(fs * 0.4) + " " + F(-fs * 1.2) + " " + F(fs * 1.1) + " " + F(-fs * 2.4) + 'z" fill="#8fd3ff" stroke="#fff" stroke-width=".8"/>',
+      // writing it down in a notebook
+      write: '<g class="a-note"><rect x="' + F(cx - W * 0.4) + '" y="' + F(y0 + H * 0.6) + '" width="' + F(W * 0.8) + '" height="' + F(H * 0.3) + '" rx="' + F(fs * 0.6) + '" fill="#fdfcfc" stroke="#e2ded9" stroke-width=".8"/>' +
+        '<rect x="' + F(cx - W * 0.4) + '" y="' + F(y0 + H * 0.6) + '" width="' + F(W * 0.8) + '" height="' + F(H * 0.045) + '" rx="' + F(fs * 0.3) + '" fill="#0061ef"/>' +
+        '<path class="a-ink" pathLength="1" d="M' + F(cx - W * 0.3) + " " + F(y0 + H * 0.73) + "q" + F(W * 0.05) + " " + F(-H * 0.04) + " " + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0M" + F(cx - W * 0.3) + " " + F(y0 + H * 0.82) + "q" + F(W * 0.05) + " " + F(-H * 0.04) + " " + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0t" + F(W * 0.1) + ' 0" fill="none" stroke="#2d2c2b" stroke-width="1.4" stroke-linecap="round"/>' +
+        '<g class="a-pencil"><g transform="translate(' + F(cx + W * 0.12) + " " + F(y0 + H * 0.74) + ') rotate(-40)"><path d="M0 0l' + F(fs * 0.7) + " " + F(-fs * 0.45) + "h" + F(fs * 6) + "v" + F(fs * 0.9) + "h" + F(-fs * 6) + 'z" fill="#f47d31"/><path d="M0 0l' + F(fs * 0.7) + " " + F(-fs * 0.45) + "v" + F(fs * 0.9) + 'z" fill="#f5d6b8"/><circle cx="' + F(fs * 0.15) + '" cy="0" r="' + F(fs * 0.18) + '" fill="#2d2c2b"/><rect x="' + F(fs * 6.7) + '" y="' + F(-fs * 0.45) + '" width="' + F(fs * 0.9) + '" height="' + F(fs * 0.9) + '" rx="' + F(fs * 0.2) + '" fill="#ffa1cc"/></g></g></g>',
+      // a little blush
+      blush: '<g class="a-blush"><ellipse cx="' + F(cx - ex - fs * 1.3) + '" cy="' + F(ey + fs * 1.5) + '" rx="' + F(fs * 1.05) + '" ry="' + F(fs * 0.55) + '" fill="#ff7fae" fill-opacity=".5" filter="url(#blur1_5)"/>' +
+        '<ellipse cx="' + F(cx + ex + fs * 1.3) + '" cy="' + F(ey + fs * 1.5) + '" rx="' + F(fs * 1.05) + '" ry="' + F(fs * 0.55) + '" fill="#ff7fae" fill-opacity=".5" filter="url(#blur1_5)"/></g>'
+    };
+    var acc = opts.acc && ACC[opts.acc] ? '<g class="acc acc-' + opts.acc + '">' + ACC[opts.acc] + "</g>" : "";
     var sphereD = stageW * 0.9;
     var svg = '<svg class="bsvg" width="' + SW.toFixed(1) + '" height="' + SH.toFixed(1) + '" viewBox="0 0 ' + SW.toFixed(1) + " " + SH.toFixed(1) + '" style="left:' + ((stageW - SW) / 2).toFixed(1) + 'px;bottom:' + (stageH * 0.16).toFixed(1) + 'px;--rise:' + (-H * 0.35).toFixed(1) + 'px;--look:' + (0.45 * fs).toFixed(2) + 'px;--upv:' + (0.5 * fs).toFixed(2) + 'px" aria-hidden="true">' +
       '<defs><path id="bp' + n + '" d="' + paths[0] + '">' + anim + '</path><clipPath id="bc' + n + '"><use href="#bp' + n + '"/></clipPath></defs>' +
@@ -149,7 +176,7 @@
       '<use href="#bp' + n + '" fill="url(#bEdge)"/></g>' +
       '<use href="#bp' + n + '" fill="none" stroke="#d68c00" stroke-opacity=".28" stroke-width="1"/>' +
       '<g transform="translate(0 ' + drop.toFixed(2) + ')"><g class="b-up"><g class="b-look">' + eye(cx - 1.6 * fs) + eye(cx + 1.6 * fs) + "</g></g></g>" +
-      "</g></g></svg>";
+      acc + "</g></g></svg>";
     return '<div class="bstage st-' + state + (opts.loop ? " loop" : "") + (k >= 5 ? " slow" : "") + (still ? " static" : "") + '" style="width:' + stageW.toFixed(0) + "px;height:" + stageH.toFixed(0) + 'px"' +
       (opts.label ? ' role="img" aria-label="' + esc(opts.label) + '"' : ' aria-hidden="true"') + ">" +
       (opts.noSphere ? "" : '<div class="sphere pal-' + pal + '" style="width:' + sphereD.toFixed(0) + "px;height:" + sphereD.toFixed(0) + "px;left:" + ((stageW - sphereD) / 2).toFixed(0) + "px;top:" + ((stageH - sphereD) / 2).toFixed(0) + 'px"></div>') +
@@ -189,31 +216,30 @@
   // ---------- onboarding ----------
   var OB = [
     { kicker: "Hello, meet", h: "BLOB", body: "Blob is well… A blob,<br>blob doesn’t know how to feel because well… its a blob.", btn: "Would you like to help blob?", blob: { k: 1, state: "wait" }, intro: true },
-    { h: "Blob feels things,<br>but it doesn’t know<br>how to <em>feel</em> them.", sub: "But you do…", btn: "Next", blob: { k: 1, state: "bounce" }, center: true },
-    { h: "It tells you the story.", body: "Each evening, the blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.",
-      quote: "“At 3:10 my heart started racing. I'd been sitting still for over an hour.”", btn: "Next", blob: { k: 1, state: "wait" } },
-    { h: "You help it understand.", body: "You fill in what was going on for the blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat" } },
-    { h: "It learns to guess.", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it's right or wrong.",
-      quote: "“Sitting still, heart racing. I think that was my pressure again.”", btn: "Next", blob: { k: 1, state: "work" } },
-    { h: "It asks for a little care.", body: "When it's flattened, the blob might ask you to breathe slowly with it, or rest. As your heart settles, you'll see it puff back up.",
-      ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Meet the blob", blob: { k: 1, state: "puff" } }
+    { h: "Blob feels things,<br>but it doesn’t know<br>how to <em>feel</em> them.", sub: "But you do…", btn: "But you do…", blob: { k: 1, state: "bounce", acc: "brain" }, big: true },
+    { h: "Blob can however<br>tell <em>you</em> a story", body: "Each evening, the blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.", btn: "Next", blob: { k: 1, state: "wait", acc: "read" } },
+    { h: "You might be able to<br>help blob understand.", body: "You fill in what was going on for the blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat", acc: "puzzled" } },
+    { h: "You can teach it to learn", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it’s right or wrong.",
+      quote: "“Sitting still, heart racing. I think that was my pressure again.”", btn: "Next", blob: { k: 1, state: "work", acc: "write" } },
+    { h: "It asks for a little care", body: "When it’s flattened, the blob might ask you to breathe slowly with it, or rest. As your heart settles, you’ll see it puff back up.",
+      ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Meet the blob", blob: { k: 1, state: "puff", acc: "blush" } }
   ];
   function viewOnboarding(i) {
     var o = OB[i];
     var head = i === 0 ? '<div class="ob-head"></div>' :
       '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" aria-label="Step ' + i + ' of 5">' +
       [1, 2, 3, 4, 5].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
-    var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, loop: true, box: 330, label: "The blob" }) + "</div>";
+    var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, acc: o.blob.acc, loop: true, box: 330, label: "The blob" }) + "</div>";
+    var btn = '<button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button>";
     if (o.intro) return '<div class="screen"><div class="ob ob-intro">' + head +
       '<p class="kicker">' + o.kicker + '</p><h1 class="wordmark">' + o.h + "</h1>" + art +
-      '<p class="body">' + o.body + '</p><button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button></div></div>";
-    if (o.center) return '<div class="screen"><div class="ob ob-center">' + head + art +
-      "<h1>" + o.h + '</h1><p class="sub">' + o.sub + '</p><button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button></div></div>";
-    return '<div class="screen"><div class="ob">' + head + art +
-      "<h1" + (o.display ? ' class="display"' : "") + ">" + o.h + '</h1><p class="body">' + o.body + "</p>" +
+      '<p class="body">' + o.body + "</p>" + btn + "</div></div>";
+    return '<div class="screen"><div class="ob ob-center' + (o.big ? " ob-big" : "") + '">' + head + art + "<h1>" + o.h + "</h1>" +
+      (o.sub ? '<p class="sub">' + o.sub + "</p>" : "") +
+      (o.body ? '<p class="body">' + o.body + "</p>" : "") +
       (o.quote ? '<p class="quote">' + o.quote + "</p>" : "") +
       (o.ticks ? '<ul class="ticks">' + o.ticks.map(function (t) { return "<li>" + ICON.tick + "<span>" + t + "</span></li>"; }).join("") + "</ul>" : "") +
-      '<button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button></div></div>";
+      btn + "</div></div>";
   }
 
   // ---------- home ----------
