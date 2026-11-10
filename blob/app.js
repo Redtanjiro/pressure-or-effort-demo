@@ -188,8 +188,8 @@
 
   // ---------- onboarding ----------
   var OB = [
-    { h: "This is the blob.", body: "The blob doesn't know how to feel. Will you help it find out?", btn: "Help the blob", blob: { k: 1, state: "wait" }, display: true },
-    { h: "It feels something.", body: "Your watch notices when your heart rate rises. The blob feels it too. It might flatten, or it might just bounce along.", btn: "Next", blob: { k: 1, state: "bounce" } },
+    { kicker: "Hello, meet", h: "BLOB", body: "Blob is well… A blob,<br>blob doesn’t know how to feel because well… its a blob.", btn: "Would you like to help blob?", blob: { k: 1, state: "wait" }, intro: true },
+    { h: "Blob feels things,<br>but it doesn’t know<br>how to <em>feel</em> them.", sub: "But you do…", btn: "Next", blob: { k: 1, state: "bounce" }, center: true },
     { h: "It tells you the story.", body: "Each evening, the blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.",
       quote: "“At 3:10 my heart started racing. I'd been sitting still for over an hour.”", btn: "Next", blob: { k: 1, state: "wait" } },
     { h: "You help it understand.", body: "You fill in what was going on for the blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat" } },
@@ -203,8 +203,13 @@
     var head = i === 0 ? '<div class="ob-head"></div>' :
       '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" aria-label="Step ' + i + ' of 5">' +
       [1, 2, 3, 4, 5].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
-    return '<div class="screen"><div class="ob">' + head +
-      '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, loop: true, box: 330, label: "The blob" }) + "</div>" +
+    var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, loop: true, box: 330, label: "The blob" }) + "</div>";
+    if (o.intro) return '<div class="screen"><div class="ob ob-intro">' + head +
+      '<p class="kicker">' + o.kicker + '</p><h1 class="wordmark">' + o.h + "</h1>" + art +
+      '<p class="body">' + o.body + '</p><button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button></div></div>";
+    if (o.center) return '<div class="screen"><div class="ob ob-center">' + head + art +
+      "<h1>" + o.h + '</h1><p class="sub">' + o.sub + '</p><button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button></div></div>";
+    return '<div class="screen"><div class="ob">' + head + art +
       "<h1" + (o.display ? ' class="display"' : "") + ">" + o.h + '</h1><p class="body">' + o.body + "</p>" +
       (o.quote ? '<p class="quote">' + o.quote + "</p>" : "") +
       (o.ticks ? '<ul class="ticks">' + o.ticks.map(function (t) { return "<li>" + ICON.tick + "<span>" + t + "</span></li>"; }).join("") + "</ul>" : "") +
