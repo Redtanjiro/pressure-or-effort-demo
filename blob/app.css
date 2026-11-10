@@ -73,6 +73,13 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .ticks li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; }
 .ticks svg { margin-top: 2px; }
 .ob .btn { margin-top: 24px; }
+.ob-intro, .ob-center { text-align: center; }
+.ob-intro .kicker { font-size: 20px; font-weight: 500; margin-top: 24px; }
+.ob-intro .wordmark { font-size: 88px; font-weight: 700; font-style: italic; letter-spacing: -0.05em; line-height: 1; margin-top: 4px; }
+.ob-intro .body { font-size: 18px; margin-top: 8px; }
+.ob-center h1 { font-size: 30px; line-height: 1.25; letter-spacing: -0.02em; }
+.ob-center h1 em { font-style: italic; }
+.ob-center .sub { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin-top: 28px; }
 
 /* home */
 .blobcard { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 8px; min-height: 200px; padding: 8px 20px 8px 4px; }
