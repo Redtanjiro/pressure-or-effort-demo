@@ -494,6 +494,7 @@
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
     if (overlay && overlay.type === "after") html += viewAfter(overlay);
     app.innerHTML = html;
+    if (obDir) { var ob = app.querySelector(".ob"); if (ob) ob.classList.add("in-" + obDir); obDir = ""; }
     if (r.name === "care") startCare(r.arg);
     if (r.name === "home" && S.onboarded && !S.popupSeen && !overlay) {
       var n = nextStory();
@@ -553,6 +554,32 @@
       go(nx3 ? "#story/" + nx3.id : id === "free" ? "#blob" : "#home");
     } else if (act === "sugg") { S.sugg[k] = S.sugg[k] === v ? null : v; save(); rerenderKeepScroll(); }
   });
+  // swipe through the intro: left for next, right for back (touch, or a mouse drag on a laptop)
+  var swipe = null, obDir = "";
+  function obIndex() { var n = route().name; return n === "intro" ? 0 : /^step[1-5]$/.test(n) ? +n.slice(4) : -1; }
+  app.addEventListener("pointerdown", function (e) {
+    if (obIndex() < 0 || e.target.closest("button")) return;
+    swipe = { x: e.clientX, y: e.clientY };
+  });
+  window.addEventListener("pointerup", function (e) {
+    if (!swipe) return;
+    var dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+    swipe = null;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    var i = obIndex();
+    if (dx < 0) { obDir = "next"; if (i === 5) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1)); }
+    else if (i > 0) { obDir = "prev"; go(i === 1 ? "#intro" : "#step" + (i - 1)); }
+  });
+  window.addEventListener("pointercancel", function () { swipe = null; });
+
+  // tap the blob and it jumps
+  app.addEventListener("pointerdown", function (e) {
+    var st = e.target.closest(".bstage"); if (!st || st.classList.contains("static")) return;
+    var svg = st.querySelector(".bsvg"); if (!svg) return;
+    svg.classList.remove("jump"); void svg.getBoundingClientRect(); svg.classList.add("jump");
+  });
+  app.addEventListener("animationend", function (e) { if (e.animationName === "jump") e.target.classList.remove("jump"); });
+
   window.addEventListener("hashchange", function () { overlay = null; render(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && overlay && overlay.type === "popup") { overlay = null; render(); } });
 

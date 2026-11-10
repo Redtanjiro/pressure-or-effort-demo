@@ -74,6 +74,11 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .ticks svg { margin-top: 2px; }
 .ob .btn { margin-top: 24px; }
 .ob-intro, .ob-center { text-align: center; }
+.ob { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.ob.in-next { animation: obnext 0.32s cubic-bezier(.2, .9, .3, 1); }
+.ob.in-prev { animation: obprev 0.32s cubic-bezier(.2, .9, .3, 1); }
+@keyframes obnext { from { transform: translateX(40px); opacity: 0; } }
+@keyframes obprev { from { transform: translateX(-40px); opacity: 0; } }
 .ob-intro .kicker { font-size: 20px; font-weight: 500; margin-top: 24px; }
 .ob-intro .wordmark { font-size: 88px; font-weight: 700; font-style: italic; letter-spacing: -0.05em; line-height: 1; margin-top: 4px; }
 .ob-intro .body { font-size: 18px; margin-top: 8px; }
@@ -182,6 +187,16 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .pal-sage { background: radial-gradient(circle at 30% 26%, #eef6e2 0, rgba(238, 246, 226, 0) 48%), radial-gradient(circle at 76% 34%, #bfe0d4 0, rgba(191, 224, 212, 0) 52%), radial-gradient(circle at 36% 80%, #f7cdb8 0, rgba(247, 205, 184, 0) 56%), radial-gradient(circle at 80% 82%, #a9cfe6 0, rgba(169, 207, 230, 0) 50%), #d5e6d6; }
 .bsvg { position: absolute; overflow: visible; }
 .bsvg g { transform-box: fill-box; }
+.bstage:not(.static) { cursor: pointer; touch-action: manipulation; }
+.bsvg.jump { transform-origin: 50% 100%; animation: jump 0.7s cubic-bezier(.3, .7, .4, 1); }
+@keyframes jump {
+  0% { transform: none; }
+  14% { transform: scale(1.12, 0.84); }
+  40% { transform: translateY(-34%) scale(0.92, 1.1); }
+  62% { transform: translateY(0) scale(1.08, 0.9); }
+  78% { transform: scale(0.97, 1.03); }
+  100% { transform: none; }
+}
 .b-lean, .b-squash { transform-origin: 50% 100%; }
 .b-lean { animation: lean calc(4.2s * var(--sp)) ease-in-out infinite; }
 .b-squash { animation: squash calc(3.3s * var(--sp)) ease-in-out infinite; }
@@ -229,7 +244,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .bstage.static *, .bstage.static { animation: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
-  .bstage *, .bstage, .sphere, .sheet, .backdrop { animation: none !important; transition: none !important; }
+  .bstage *, .bstage, .sphere, .sheet, .backdrop, .ob { animation: none !important; transition: none !important; }
 }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .st-puff.loop .b-squash { animation: puffloop 5s cubic-bezier(.2, .8, .3, 1) infinite; }
