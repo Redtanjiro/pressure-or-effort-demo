@@ -7,11 +7,43 @@
 
   // ---------- state ----------
   var S = (function () {
-    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false };
+    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false, look: { color: "honey", bg: "calm" } };
     try { var raw = localStorage.getItem(KEY); if (raw) { var v = JSON.parse(raw); for (var k in v) if (k in s) s[k] = v[k]; } } catch (e) { /* no storage */ }
     return s;
   })();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
+
+  // ---------- the user's blob: colour and background ----------
+  // [id, name, hue turn, saturation x, lightness +] from the honey gradients
+  var COLORS = [["honey", "Honey", 0, 1, 0], ["peach", "Peach", -22, 1, 0], ["rose", "Rose", -62, 0.85, 0.05], ["lilac", "Lilac", -150, 0.55, 0.14], ["sky", "Sky", 158, 0.8, 0.05], ["mint", "Mint", 108, 0.7, 0.02]];
+  var BGS = [["calm", "Blush"], ["glow", "Sunset"], ["dusk", "Lavender"], ["sage", "Meadow"], ["sea", "Lagoon"], ["mist", "Mist"]];
+  var GRADS = ["bFill", "bBase", "bEdge", "bTop", "bCore", "bRim", "bShadow", "bHalo"];
+  function hueShift(hex, deg, sm, la) {
+    var n = parseInt(hex.slice(1), 16), r = (n >> 16) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn, h = 0, sat = 0;
+    if (d) {
+      sat = d / (1 - Math.abs(2 * l - 1));
+      h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    }
+    h = ((h * 60 + deg) % 360 + 360) % 360;
+    sat = Math.min(1, sat * (sm == null ? 1 : sm)); l = Math.min(0.97, l + (la || 0) * (1 - l) * 2);
+    var c = (1 - Math.abs(2 * l - 1)) * sat, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2, rgb;
+    rgb = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    return "#" + rgb.map(function (v) { return ("0" + Math.round((v + m) * 255).toString(16)).slice(-2); }).join("");
+  }
+  (function buildColors() {
+    var defs = document.querySelector("#blobdefs defs") || document.querySelector("svg defs");
+    if (!defs) return;
+    COLORS.slice(1).forEach(function (c) {
+      GRADS.forEach(function (id) {
+        var g = document.getElementById(id); if (!g) return;
+        var cl = g.cloneNode(true); cl.id = id + "-" + c[0];
+        cl.querySelectorAll("stop").forEach(function (st) { var sc = st.getAttribute("stop-color"); if (sc && sc !== "#fff") st.setAttribute("stop-color", hueShift(sc, c[2], c[3], c[4])); });
+        defs.appendChild(cl);
+      });
+    });
+  })();
+  function lookColor(c) { c = c || S.look.color; return COLORS.filter(function (x) { return x[0] === c; })[0] || COLORS[0]; }
 
   // ---------- helpers ----------
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -119,7 +151,8 @@
     k = Math.max(1, Math.min(7, k || 1));
     var f = opts.f || 2, dm = dims(k), W = dm.w * f, H = dm.h * f, n = ++uid;
     var state = opts.state || (k >= 4 ? "flat" : "wait");
-    var pal = opts.pal || ({ flat: "dusk", breathe: "sage", puff: "sage", work: "glow" }[state] || "calm");
+    var pal = opts.pal || ({ flat: "dusk", breathe: "sage", puff: "sage", work: "glow" }[state] || opts.bg || S.look.bg);
+    var col = lookColor(opts.color), sx = col[2] ? "-" + col[0] : "", u = function (id) { return "url(#" + id + sx + ")"; };
     var stageW = opts.box || Math.max(W * 1.7, 56 * f * 1.25), stageH = opts.boxH || stageW;
     var SW = W * 1.6, SH = H * 1.5, x0 = (SW - W) / 2, y0 = SH - H - H * 0.14;
     var fs = (W + H) / 40, eyeY = y0 + H * 0.31 + fs, lid = 1 - (k - 1) * 0.08, drop = (k - 1) * 0.06 * fs;
@@ -163,18 +196,18 @@
     var sphereD = stageW * 0.9;
     var svg = '<svg class="bsvg" width="' + SW.toFixed(1) + '" height="' + SH.toFixed(1) + '" viewBox="0 0 ' + SW.toFixed(1) + " " + SH.toFixed(1) + '" style="left:' + ((stageW - SW) / 2).toFixed(1) + 'px;bottom:' + (stageH * 0.16).toFixed(1) + 'px;--rise:' + (-H * 0.35).toFixed(1) + 'px;--look:' + (0.45 * fs).toFixed(2) + 'px;--upv:' + (0.5 * fs).toFixed(2) + 'px" aria-hidden="true">' +
       '<defs><path id="bp' + n + '" d="' + paths[0] + '">' + anim + '</path><clipPath id="bc' + n + '"><use href="#bp' + n + '"/></clipPath></defs>' +
-      '<ellipse cx="' + cx + '" cy="' + (y0 + H + H * 0.06).toFixed(1) + '" rx="' + (W * 0.67).toFixed(1) + '" ry="' + (H * 0.11).toFixed(1) + '" fill="url(#bShadow)" filter="url(#blur1_5)"/>' +
+      '<ellipse cx="' + cx + '" cy="' + (y0 + H + H * 0.06).toFixed(1) + '" rx="' + (W * 0.67).toFixed(1) + '" ry="' + (H * 0.11).toFixed(1) + '" fill="' + u("bShadow") + '" filter="url(#blur1_5)"/>' +
       '<g class="b-lean"><g class="b-squash">' +
-      '<ellipse class="b-halo" cx="' + cx + '" cy="' + (y0 + H * 0.5).toFixed(1) + '" rx="' + (W * 0.66).toFixed(1) + '" ry="' + (H * 0.62).toFixed(1) + '" fill="url(#bHalo)"/>' +
+      '<ellipse class="b-halo" cx="' + cx + '" cy="' + (y0 + H * 0.5).toFixed(1) + '" rx="' + (W * 0.66).toFixed(1) + '" ry="' + (H * 0.62).toFixed(1) + '" fill="' + u("bHalo") + '"/>' +
       '<g clip-path="url(#bc' + n + ')">' +
-      '<use href="#bp' + n + '" fill="url(#bFill)"/><use href="#bp' + n + '" fill="url(#bBase)"/><use href="#bp' + n + '" fill="url(#bTop)"/>' +
-      '<g class="b-core"><ellipse cx="' + cx + '" cy="' + (y0 + H * 0.68).toFixed(1) + '" rx="' + (W * 0.35).toFixed(1) + '" ry="' + (H * 0.33).toFixed(1) + '" fill="url(#bCore)"/></g>' +
+      '<use href="#bp' + n + '" fill="' + u("bFill") + '"/><use href="#bp' + n + '" fill="' + u("bBase") + '"/><use href="#bp' + n + '" fill="' + u("bTop") + '"/>' +
+      '<g class="b-core"><ellipse cx="' + cx + '" cy="' + (y0 + H * 0.68).toFixed(1) + '" rx="' + (W * 0.35).toFixed(1) + '" ry="' + (H * 0.33).toFixed(1) + '" fill="' + u("bCore") + '"/></g>' +
       '<g class="b-bub b1">' + bub(0, 0.7, 0.66, 0.035) + '</g><g class="b-bub b2">' + bub(0, 0.3, 0.76, 0.021) + '</g><g class="b-bub b3">' + bub(0, 0.55, 0.87, 0.014) + "</g>" +
-      '<ellipse cx="' + cx + '" cy="' + (y0 + H * 0.965).toFixed(1) + '" rx="' + (W * 0.41).toFixed(1) + '" ry="' + (H * 0.088).toFixed(1) + '" fill="url(#bRim)"/>' +
+      '<ellipse cx="' + cx + '" cy="' + (y0 + H * 0.965).toFixed(1) + '" rx="' + (W * 0.41).toFixed(1) + '" ry="' + (H * 0.088).toFixed(1) + '" fill="' + u("bRim") + '"/>' +
       '<g class="b-hl"><ellipse cx="' + (x0 + W * 0.37).toFixed(1) + '" cy="' + (y0 + H * 0.22).toFixed(1) + '" rx="' + (W * 0.185).toFixed(1) + '" ry="' + (H * 0.11).toFixed(1) + '" fill="url(#bSpec)" transform="rotate(-18 ' + (x0 + W * 0.37).toFixed(1) + " " + (y0 + H * 0.22).toFixed(1) + ')"/>' +
       '<circle cx="' + (x0 + W * 0.65).toFixed(1) + '" cy="' + (y0 + H * 0.19).toFixed(1) + '" r="' + (W * 0.024).toFixed(2) + '" fill="#fff" fill-opacity=".9"/></g>' +
-      '<use href="#bp' + n + '" fill="url(#bEdge)"/></g>' +
-      '<use href="#bp' + n + '" fill="none" stroke="#d68c00" stroke-opacity=".28" stroke-width="1"/>' +
+      '<use href="#bp' + n + '" fill="' + u("bEdge") + '"/></g>' +
+      '<use href="#bp' + n + '" fill="none" stroke="' + hueShift("#d68c00", col[2], col[3], col[4]) + '" stroke-opacity=".28" stroke-width="1"/>' +
       '<g transform="translate(0 ' + drop.toFixed(2) + ')"><g class="b-up"><g class="b-look">' + eye(cx - 1.6 * fs) + eye(cx + 1.6 * fs) + "</g></g></g>" +
       acc + "</g></g></svg>";
     return '<div class="bstage st-' + state + (opts.loop ? " loop" : "") + (k >= 5 ? " slow" : "") + (still ? " static" : "") + '" style="width:' + stageW.toFixed(0) + "px;height:" + stageH.toFixed(0) + 'px"' +
@@ -200,7 +233,7 @@
   function go(h) { if (location.hash === h) render(); else location.hash = h; }
   function route() {
     var h = (location.hash || "").slice(1);
-    if (!S.onboarded && !/^(intro|step[1-5])$/.test(h)) return { name: "intro" };
+    if (!S.onboarded && !/^(intro|step[1-6])$/.test(h)) return { name: "intro" };
     if (!h) return { name: "home" };
     var p = h.split("/");
     return { name: p[0], arg: p.slice(1).join("/") };
@@ -222,15 +255,19 @@
     { h: "You can teach it to learn", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it’s right or wrong.",
       quote: "“Sitting still, heart racing. I think that was my pressure again.”", btn: "Next", blob: { k: 1, state: "work", acc: "write" } },
     { h: "It asks for a little care", body: "When it’s flattened, the blob might ask you to breathe slowly with it, or rest. As your heart settles, you’ll see it puff back up.",
-      ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Meet the blob", blob: { k: 1, state: "puff", acc: "blush" } }
+      ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Next", blob: { k: 1, state: "puff", acc: "blush" } },
+    { h: "Choose your blob", btn: "Meet my blob", blob: { k: 1, state: "wait" }, choose: true }
   ];
   function viewOnboarding(i) {
     var o = OB[i];
     var head = i === 0 ? '<div class="ob-head"></div>' :
-      '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" aria-label="Step ' + i + ' of 5">' +
-      [1, 2, 3, 4, 5].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
+      '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" aria-label="Step ' + i + ' of 6">' +
+      [1, 2, 3, 4, 5, 6].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
     var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, acc: o.blob.acc, loop: true, box: 330, label: "The blob" }) + "</div>";
     var btn = '<button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button>";
+    if (o.choose) return '<div class="screen"><div class="ob ob-center ob-choose">' + head +
+      '<div class="ob-blob" id="lookblob">' + blob(1, { f: 3.3, state: "wait", loop: true, box: 330, label: "Your blob, " + lookColor()[1] }) + "</div>" +
+      "<h1>" + o.h + "</h1>" + lookPicker() + btn + "</div></div>";
     if (o.intro) return '<div class="screen"><div class="ob ob-intro">' + head +
       '<p class="kicker">' + o.kicker + '</p><h1 class="wordmark">' + o.h + "</h1>" + art +
       '<p class="body">' + o.body + "</p>" + btn + "</div></div>";
@@ -240,6 +277,18 @@
       (o.quote ? '<p class="quote">' + o.quote + "</p>" : "") +
       (o.ticks ? '<ul class="ticks">' + o.ticks.map(function (t) { return "<li>" + ICON.tick + "<span>" + t + "</span></li>"; }).join("") + "</ul>" : "") +
       btn + "</div></div>";
+  }
+
+  function lookPicker() {
+    var col = '<p class="pick-h">Colour</p><div class="swatches" role="radiogroup" aria-label="Colour">' + COLORS.map(function (c) {
+      return '<button class="sw' + (S.look.color === c[0] ? " on" : "") + '" role="radio" aria-checked="' + (S.look.color === c[0]) + '" data-act="look" data-k="color" data-v="' + c[0] + '" aria-label="' + c[1] + '">' +
+        '<span class="sw-dot" style="background:radial-gradient(circle at 36% 30%,' + hueShift("#fff4be", c[2], c[3], c[4]) + "," + hueShift("#ffd832", c[2], c[3], c[4]) + " 45%," + hueShift("#f09e00", c[2], c[3], c[4]) + ')"></span><span>' + c[1] + "</span></button>";
+    }).join("") + "</div>";
+    var bg = '<p class="pick-h">Background</p><div class="swatches" role="radiogroup" aria-label="Background">' + BGS.map(function (b) {
+      return '<button class="sw' + (S.look.bg === b[0] ? " on" : "") + '" role="radio" aria-checked="' + (S.look.bg === b[0]) + '" data-act="look" data-k="bg" data-v="' + b[0] + '" aria-label="' + b[1] + '">' +
+        '<span class="sw-dot pal-' + b[0] + '"></span><span>' + b[1] + "</span></button>";
+    }).join("") + "</div>";
+    return '<div class="picker">' + col + bg + "</div>";
   }
 
   // ---------- home ----------
@@ -501,7 +550,8 @@
       h += '<div class="kindrow" style="margin-top:12px"><b>' + k + '</b><span class="smoke">' + list.length + "</span></div>" +
         (list.length ? '<div class="collection">' + list.slice(-10).map(function (m) { return '<button data-go="#story/' + m.id + '" aria-label="' + esc(shortDate(m.date) + ", " + ampm(m.peakMin) + ", " + ans(m).flat + " of 7") + '">' + mini(ans(m).flat) + "</button>"; }).join("") + "</div>" : "");
     });
-    h += '</section><section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
+    h += '</section><section class="card"><h2 class="section">My blob</h2><p class="small" style="margin-top:4px">Change its colour and background any time.</p>' + lookPicker() + '</section>' +
+      '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
     return h + "</div>" + tabbar("blob");
   }
 
@@ -510,7 +560,7 @@
     stopCare();
     var r = route(), html;
     if (r.name === "intro") html = viewOnboarding(0);
-    else if (/^step[1-5]$/.test(r.name)) html = viewOnboarding(+r.name.slice(4));
+    else if (/^step[1-6]$/.test(r.name)) html = viewOnboarding(+r.name.slice(4));
     else if (r.name === "story") html = viewStory(r.arg);
     else if (r.name === "care") html = viewCare(r.arg);
     else if (r.name === "stories") html = viewStories();
@@ -548,7 +598,11 @@
     var r = route();
     if (act === "ob") {
       var i = +v;
-      if (i === 5) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1));
+      if (i === 6) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1));
+    } else if (act === "look") {
+      S.look[k] = v; save();
+      var sc0 = app.querySelector(".screen"), top0 = sc0 ? sc0.scrollTop : 0;
+      render(); sc0 = app.querySelector(".screen"); if (sc0) sc0.scrollTop = top0;
     } else if (act === "read") {
       var n = nextStory(); if (n) { overlay = { type: "popup", id: n.id }; render(); }
     } else if (act === "close") { overlay = null; render(); }
@@ -582,7 +636,7 @@
   });
   // swipe through the intro: left for next, right for back (touch, or a mouse drag on a laptop)
   var swipe = null, obDir = "";
-  function obIndex() { var n = route().name; return n === "intro" ? 0 : /^step[1-5]$/.test(n) ? +n.slice(4) : -1; }
+  function obIndex() { var n = route().name; return n === "intro" ? 0 : /^step[1-6]$/.test(n) ? +n.slice(4) : -1; }
   app.addEventListener("pointerdown", function (e) {
     if (obIndex() < 0 || e.target.closest("button")) return;
     swipe = { x: e.clientX, y: e.clientY };
@@ -593,7 +647,7 @@
     swipe = null;
     if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     var i = obIndex();
-    if (dx < 0) { obDir = "next"; if (i === 5) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1)); }
+    if (dx < 0) { obDir = "next"; if (i === 6) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1)); }
     else if (i > 0) { obDir = "prev"; go(i === 1 ? "#intro" : "#step" + (i - 1)); }
   });
   window.addEventListener("pointercancel", function () { swipe = null; });
