@@ -240,7 +240,7 @@
   }
 
   function tabbar(active) {
-    var tabs = [["home", "Home"], ["stories", "Stories"], ["learned", "Learned"], ["blob", "Blob"]];
+    var tabs = [["home", "Home"], ["stories", "Journal"], ["learned", "Learned"], ["blob", "Blob"]];
     return '<nav class="tabbar" aria-label="Main">' + tabs.map(function (t) {
       return '<a class="tab" href="#' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : "") + '><span class="ic">' + ICON[t[0]] + "</span>" + t[1] + "</a>";
     }).join("") + "</nav>";
@@ -331,7 +331,6 @@
   }
   function viewHome() {
     var d = todayDay(), lv = todayLevel(), n = d.moments.length;
-    var waiting = storiesOf(d).filter(function (m) { return !ans(m); }).length;
     var h = '<div class="screen with-tabs"><p class="date">' + longDate(TODAY) + '</p><h1 class="title">The blob\'s day</h1>' +
       '<section class="card blobcard">' + blob(lv, { f: 1.9, box: 160, label: "The blob, " + lv + " of 7 flat" }) +
       '<div><p class="caption" style="font-weight:500">How flat it is</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small" style="margin:8px 0 12px">' + LEVEL_LINE[lv] + "</p>" +
@@ -339,9 +338,6 @@
       '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
       '<div class="stats"><div class="stat"><b>' + Math.round(d.rhr) + '</b><span>resting bpm</span></div><div class="stat"><b>' + d.steps.toLocaleString("en-AU") + '</b><span>steps</span></div><div class="stat"><b>' + n + "</b><span>moments</span></div></div>";
     if (d.nRises > 4) h += '<p class="small" style="margin-top:10px">The blob will ask you about the biggest 4 tonight.</p>';
-    h += waiting
-      ? '<section class="card dark ready"><div><h2 class="section">' + waiting + " stor" + (waiting === 1 ? "y" : "ies") + ' ready tonight</h2><p class="small smoke" style="margin-top:4px">Help it understand its day</p></div><button class="btn small-btn" data-act="read">Read</button></section>'
-      : '<section class="card dark ready"><div><h2 class="section">It knows its day</h2><p class="small smoke" style="margin-top:4px">Every story is saved. See them in Stories.</p></div><a class="btn small-btn" href="#stories">Stories</a></section>';
     return h + "</div>" + tabbar("home");
   }
 
@@ -474,7 +470,7 @@
     return '<li><button class="row" data-go="#story/' + m.id + '"><span class="mini">' + (a && a.flat ? mini(a.flat) : mini(1)) + '</span><span class="grow"><b>' + ampm(m.peakMin) + "</b><span>" + esc(activityOf(m)) + " · +" + m.lift + " bpm</span></span>" + statusOf(m) + "</button></li>";
   }
   function viewStories() {
-    var h = '<div class="screen with-tabs"><p class="date">Its stories</p><h1 class="title">Stories</h1>';
+    var h = '<div class="screen with-tabs"><p class="date">Its stories</p><h1 class="title">Journal</h1>';
     DAYS.slice().reverse().forEach(function (d) {
       var list = storiesOf(d).sort(function (a, b) { return a.peakMin - b.peakMin; });
       if (!list.length) return;
