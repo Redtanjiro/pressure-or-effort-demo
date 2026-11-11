@@ -427,3 +427,11 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .storybtn svg { width: 22px; height: 22px; }
 .sbadge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--primary); color: #fff;
   font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+
+/* ---------- Blob's look ---------- */
+.home-blob { position: relative; width: 300px; margin-left: auto; margin-right: auto; }
+.custombtn { position: absolute; right: 2px; bottom: 34px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; z-index: 2;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink); box-shadow: 0 6px 16px rgba(45, 44, 43, .12); }
+.custombtn:active { transform: scale(.94); }
+.looksheet h2 { margin-top: 0; }
+.looksheet .picker { margin-top: 8px; }
