@@ -1,808 +1,669 @@
 (function () {
   "use strict";
 
-  var DATA = window.POE_DATA;
-  var DAYS = DATA.days;
-  var KEY = "poe-live-v1";
-  var ROUTES = ["welcome", "setup", "today", "review", "headspace", "blob"];
+  var D = window.BLOB_DATA, DAYS = D.days, TODAY = D.today, NOW = D.now;
+  var KEY = "blob-app-v1";
+  var REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // ---------- state ----------
-  var S = load();
-  function blank() {
-    return { done: false, step: 0, story: 0, tryLevel: 4, day: DAYS[DAYS.length - 1].date, mi: 0,
-      stories: {}, answers: {}, marks: {}, whole: {}, match: {}, sugg: {} };
-  }
-  function load() {
-    var s = blank();
-    try {
-      var raw = localStorage.getItem(KEY);
-      if (raw) {
-        var saved = JSON.parse(raw);
-        for (var k in saved) if (k in s) s[k] = saved[k];
-      }
-    } catch (e) { /* storage blocked: run without it */ }
-    if (!dayBy(s.day)) s.day = DAYS[DAYS.length - 1].date;
+  var S = (function () {
+    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false, look: { color: "honey", bg: "calm" } };
+    try { var raw = localStorage.getItem(KEY); if (raw) { var v = JSON.parse(raw); for (var k in v) if (k in s) s[k] = v[k]; } } catch (e) { /* no storage */ }
     return s;
-  }
-  function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
-  }
+  })();
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
 
-  // ---------- moments + answers ----------
-  // One list of moments per day (marked first, then the biggest rises, max 4) and one answer object per moment.
-  function dayBy(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i]; return null; }
-  var ACTS = ["Exercising", "Walking somewhere", "On its feet, working", "Sitting, working", "Sitting, relaxing"];
-  var MOVING = { "Exercising": true, "Walking somewhere": true, "On its feet, working": true };
-  var ACT_COLOR = { "Exercising": "var(--a-ex)", "Walking somewhere": "var(--a-walk)", "On its feet, working": "var(--a-feet)", "Sitting, working": "var(--a-work)", "Sitting, relaxing": "var(--a-relax)" };
-  function fitbitGuess(d, m) {
-    if (m.steps10 > 1000 && m.bpm >= d.rhr + 60) return "Exercising";
-    if (m.steps10 > 250) return "Walking somewhere";
-    if (m.steps10 > 60) return "On its feet, working";
-    return m.peakMin >= 480 && m.peakMin < 1140 ? "Sitting, working" : "Sitting, relaxing";
+  // ---------- the user's blob: colour and background ----------
+  // [id, name, hue turn, saturation x, lightness +] from the honey gradients
+  var COLORS = [["honey", "Honey", 0, 1, 0], ["peach", "Peach", -22, 1, 0], ["rose", "Rose", -62, 0.85, 0.05], ["lilac", "Lilac", -150, 0.55, 0.14], ["sky", "Sky", 158, 0.8, 0.05], ["mint", "Mint", 108, 0.7, 0.02]];
+  var BGS = [["calm", "Blush"], ["glow", "Sunset"], ["dusk", "Lavender"], ["sage", "Meadow"], ["sea", "Lagoon"], ["mist", "Mist"]];
+  var GRADS = ["bFill", "bBase", "bEdge", "bTop", "bCore", "bRim", "bShadow", "bHalo"];
+  function hueShift(hex, deg, sm, la) {
+    var n = parseInt(hex.slice(1), 16), r = (n >> 16) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn, h = 0, sat = 0;
+    if (d) {
+      sat = d / (1 - Math.abs(2 * l - 1));
+      h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    }
+    h = ((h * 60 + deg) % 360 + 360) % 360;
+    sat = Math.min(1, sat * (sm == null ? 1 : sm)); l = Math.min(0.97, l + (la || 0) * (1 - l) * 2);
+    var c = (1 - Math.abs(2 * l - 1)) * sat, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2, rgb;
+    rgb = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    return "#" + rgb.map(function (v) { return ("0" + Math.round((v + m) * 255).toString(16)).slice(-2); }).join("");
   }
-  function markedMoment(d, min) {
-    var s = Math.min(287, Math.floor(min / 5)), p = d.series[s], q = d.series[Math.max(0, s - 1)];
-    return { peakMin: s * 5, bpm: Math.round(p[1]), mins: 5, steps10: p[2] + (s ? q[2] : 0), rise: null, marked: true };
-  }
-  function moments(d) {
-    var list = d.rises.map(function (r) { return { peakMin: r.peakMin, bpm: r.bpm, mins: r.mins, steps10: r.steps10, rise: r, marked: false }; });
-    var extra = [];
-    (S.marks[d.date] || []).forEach(function (min) {
-      var hit = list.filter(function (m) { return Math.abs(m.peakMin - min) <= 30; })[0];
-      if (hit) hit.marked = true;
-      else if (!extra.some(function (m) { return Math.abs(m.peakMin - min) < 5; })) extra.push(markedMoment(d, min));
+  (function buildColors() {
+    var defs = document.querySelector("#blobdefs defs") || document.querySelector("svg defs");
+    if (!defs) return;
+    COLORS.slice(1).forEach(function (c) {
+      GRADS.forEach(function (id) {
+        var g = document.getElementById(id); if (!g) return;
+        var cl = g.cloneNode(true); cl.id = id + "-" + c[0];
+        cl.querySelectorAll("stop").forEach(function (st) { var sc = st.getAttribute("stop-color"); if (sc && sc !== "#fff") st.setAttribute("stop-color", hueShift(sc, c[2], c[3], c[4])); });
+        defs.appendChild(cl);
+      });
     });
-    var marked = list.filter(function (m) { return m.marked; }).concat(extra).sort(function (a, b) { return a.peakMin - b.peakMin; });
-    return marked.concat(list.filter(function (m) { return !m.marked; })).slice(0, 4);
-  }
-  function aKey(d, m) { return d.date + "|" + m.peakMin; }
-  function findMoment(key) {
-    var p = key.split("|"), d = dayBy(p[0]);
-    return { d: d, m: moments(d).filter(function (m) { return m.peakMin === +p[1]; })[0] };
-  }
-  function ans(d, m) {
-    var u = S.answers[aKey(d, m)] || {}, ex = m.rise ? m.rise.answer : {};
-    var guess = fitbitGuess(d, m), activity = u.activity || guess;
-    return {
-      activity: activity, fitbitGuess: guess, corrected: activity !== guess,
-      due: "due" in u ? u.due : ex.due,
-      onTop: "onTop" in u ? u.onTop : ex.onTop,
-      pressure: "pressure" in u ? u.pressure : ex.pressure,
-      cantRemember: "cantRemember" in u ? u.cantRemember : !!(m.rise && m.rise.cantRemember),
-      moving: !!MOVING[activity]
-    };
-  }
-  function setAns(key, patch) {
-    var f = findMoment(key);
-    if (!f.m) return;
-    var a = ans(f.d, f.m);
-    for (var k in patch) a[k] = patch[k];
-    a.corrected = a.activity !== a.fitbitGuess;
-    S.answers[key] = { activity: a.activity, fitbitGuess: a.fitbitGuess, corrected: a.corrected, due: a.due, onTop: a.onTop, pressure: a.pressure, cantRemember: a.cantRemember };
-  }
-  function whole(d) { return S.whole[d.date] != null ? S.whole[d.date] : d.whole; }
-  function match(d) { return S.match[d.date] != null ? S.match[d.date] : d.match; }
-  function story(i) {
-    var s = DATA.stories[i], u = S.stories[i] || {};
-    return { due: s.due, behind: s.behind, moving: s.moving,
-      blob: u.blob != null ? u.blob : s.blob, you: u.you != null ? u.you : s.you };
-  }
-  function kind(moving, p) {
-    if (moving) return p >= 4 ? "Overload" : "Effort";
-    return p >= 4 ? "Pressure" : "Neither";
-  }
-  var KIND_COLOR = { Overload: "var(--pink)", Effort: "var(--orange)", Pressure: "var(--plum)", Neither: "var(--line)" };
-  function usable(d) {
-    var out = [];
-    moments(d).forEach(function (m) {
-      var a = ans(d, m);
-      if (!a.cantRemember && a.pressure != null) out.push({ m: m, a: a });
-    });
-    return out;
-  }
+  })();
+  function lookColor(c) { c = c || S.look.color; return COLORS.filter(function (x) { return x[0] === c; })[0] || COLORS[0]; }
 
   // ---------- helpers ----------
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function mean(a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; }
   function f1(x) { return (Math.round(x * 10) / 10).toFixed(1); }
-  function signed(x) { var v = Math.round(x * 10) / 10; return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1); }
   function asDate(s) { var p = s.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
   var WD = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   var MO = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   function longDate(s) { var d = asDate(s); return WD[d.getDay()] + " " + d.getDate() + " " + MO[d.getMonth()]; }
-  function shortDate(s) { var d = asDate(s); return d.getDate() + " " + MO[d.getMonth()].slice(0, 3); }
-  function fmtTime(min) {
-    min = ((min % 1440) + 1440) % 1440;
-    var h = Math.floor(min / 60), m = min % 60, ap = h < 12 ? "am" : "pm", hh = h % 12 || 12;
-    return hh + (m ? ":" + (m < 10 ? "0" : "") + m : "") + ap;
+  function shortDate(s) { var d = asDate(s); return WD[d.getDay()].slice(0, 3) + " " + d.getDate() + " " + MO[d.getMonth()].slice(0, 3); }
+  function clock(min) { var h = Math.floor(min / 60) % 24, m = min % 60; return (h % 12 || 12) + ":" + (m < 10 ? "0" : "") + m; }
+  function ampm(min) { return clock(min) + " " + (Math.floor(min / 60) % 24 < 12 ? "am" : "pm"); }
+  function dayBy(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i]; return null; }
+
+  // ---------- moments ----------
+  var ACTS = ["Exercising", "Walking somewhere", "On its feet working", "Sitting working", "Sitting relaxing"];
+  var VOICE = { "Exercising": "exercising", "Walking somewhere": "walking somewhere", "On its feet working": "on my feet working", "Sitting working": "sitting working", "Sitting relaxing": "sitting relaxing" };
+  var MOVING = { "Exercising": true, "Walking somewhere": true, "On its feet working": true };
+  function watchGuess(d, r) {
+    var lift = r.bpm - d.rhr;
+    if (r.steps10 > 250) return r.steps10 > 1000 && lift >= 60 ? "Exercising" : r.mins >= 45 ? "On its feet working" : "Walking somewhere";
+    return r.peakMin >= 480 && r.peakMin < 1140 ? "Sitting working" : "Sitting relaxing";
   }
-  function duration(mins) {
-    if (mins >= 90) { var h = Math.round(mins / 30) / 2; return "about " + h + " hours"; }
-    return mins + " minutes";
+  var ALL = [];
+  DAYS.forEach(function (d) {
+    d.moments = d.rises.map(function (r) {
+      var m = { id: d.date + "|" + r.peakMin, date: d.date, day: d, peakMin: r.peakMin, start: r.start, end: r.end, bpm: r.bpm,
+        lift: Math.round(r.bpm - d.rhr), steps10: r.steps10, mins: r.mins, watch: watchGuess(d, r), example: r.answer,
+        score: (r.bpm - d.rhr) * Math.sqrt(r.mins) };
+      ALL.push(m);
+      return m;
+    });
+  });
+  var byId = {}; ALL.forEach(function (m) { byId[m.id] = m; });
+  function todayDay() { return dayBy(TODAY); }
+  function storiesOf(d) { return d.moments.slice().sort(function (a, b) { return b.score - a.score; }).slice(0, 4); }
+  function ans(m) {
+    var u = S.answers[m.id];
+    if (u) return u;
+    if (m.example) return { activity: m.watch, due: m.example.due, onTop: m.example.onTop, flat: m.example.flat, cantRemember: false };
+    return null;
+  }
+  function answered(m) { var a = ans(m); return !!(a && !a.cantRemember && a.flat); }
+  function activityOf(m) { var a = ans(m); return (a && a.activity) || m.watch; }
+  function isMoving(m) { return !!MOVING[activityOf(m)]; }
+  function kind(moving, flat) { return moving ? (flat >= 4 ? "Overload" : "Effort") : (flat >= 4 ? "Pressure" : "Neither"); }
+  function part(min) { return min < 720 ? 0 : min < 900 ? 1 : min < 1080 ? 2 : 3; }
+
+  // the blob's guess about itself, from similar past moments (and the practice stories as a seed)
+  function selfGuess(m) {
+    var mv = !!MOVING[m.watch];
+    var sim = ALL.filter(function (o) { return o.id !== m.id && answered(o) && isMoving(o) === mv && part(o.peakMin) === part(m.peakMin) && (o.date < m.date || (o.date === m.date && S.answers[o.id])); });
+    var flats = sim.map(function (o) { return ans(o).flat; });
+    var seed = D.practice.filter(function (p) { return !!p.moving === mv; }).map(function (p) { return p.flat; });
+    var n = sim.length, spread = n ? Math.max.apply(null, flats) - Math.min.apply(null, flats) : 0;
+    var g = Math.max(1, Math.min(7, Math.round(n ? (mean(flats) * n + mean(seed) * 0.5) / (n + 0.5) : mean(seed))));
+    var stage = n < 3 ? 1 : n >= 5 && spread <= 2 ? 3 : 2;
+    var dues = sim.filter(function (o) { return ans(o).due; }).length;
+    var last = sim.sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+    return { stage: stage, flat: g, n: n, due: dues * 2 > n, last: last, kind: kind(mv, g) };
   }
 
-  // ---------- blob + scale ----------
-  var BLOB_PATH = "M50 4C78 4 96 24 96 52C96 76 90 86 50 86C10 86 4 76 4 52C4 24 22 4 50 4Z";
-  function dims(k, f) { k = k || 1; return { w: (40 + (k - 1) * 7) * f, h: (56 - (k - 1) * 5.8) * f }; }
-  function blob(k, f, label) {
-    var d = dims(k, f);
-    return '<svg class="blob-anim" width="' + d.w.toFixed(1) + '" height="' + d.h.toFixed(1) + '" viewBox="0 0 100 90" preserveAspectRatio="none"' +
-      (label ? ' role="img" aria-label="' + esc(label) + '"' : ' aria-hidden="true"') + '><path class="blob-shape" d="' + BLOB_PATH + '"/></svg>';
+  function stillPhrase(mins) { return mins < 60 ? mins + " minutes" : "over an hour"; }
+  function stillFor(m) {
+    var s = m.day.series, n = 0;
+    for (var i = Math.floor(m.peakMin / 5) - 1; i >= 0 && n < 48; i--) { if (s[i][2] > 60) break; n++; }
+    return { mins: n * 5, since: (Math.floor(m.peakMin / 5) - n) * 5 };
   }
-  function scale(key, value, f, label) {
-    f = f || 1;
-    var h = '<div class="scale-wrap"><div class="scale" role="radiogroup" aria-label="' + esc(label) + '" data-key="' + key + '">';
-    for (var k = 1; k <= 7; k++) {
-      var on = value === k;
-      h += '<button type="button" class="scale-opt" role="radio" aria-checked="' + on + '" tabindex="' + (on || (value == null && k === 1) ? 0 : -1) +
-        '" aria-label="' + k + ' of 7" data-act="set" data-key="' + key + '" data-v="' + k + '" data-fid="' + key + ':' + k + '">' +
-        blob(k, f) + "<span>" + k + "</span></button>";
+  function vignette(m) {
+    var g = selfGuess(m), act = m.watch, t = clock(m.peakMin);
+    if (g.stage === 3) {
+      var k = { Pressure: "my pressure", Overload: "my overload", Effort: "my effort", Neither: "just my heart" }[g.kind];
+      return t + ", " + VOICE[act] + ", heart racing. That's " + k + " again. I'm about a " + g.flat + ".";
     }
-    return h + '</div><div class="scale-ends" aria-hidden="true"><span>1 · Not flat at all</span><span>7 · Completely flattened</span></div></div>';
-  }
-  function yesNo(key, value, label) {
-    return '<div class="pills" role="radiogroup" aria-label="' + esc(label) + '">' +
-      [[true, "Yes"], [false, "No"]].map(function (o) {
-        return '<button type="button" class="pill" role="radio" aria-checked="' + (value === o[0]) + '" data-act="set" data-key="' + key +
-          '" data-v="' + (o[0] ? 1 : 0) + '" data-fid="' + key + ':' + o[0] + '">' + o[1] + "</button>";
-      }).join("") + "</div>";
+    if (g.stage === 2) {
+      var when = g.last ? "like last " + WD[asDate(g.last.date).getDay()] : "like before";
+      return "I was " + VOICE[act] + ", " + when + ". " + (g.due ? "I think something might have been due… " : "I don't think anything was due… ") +
+        (g.flat >= 4 ? "was I a bit flattened, maybe a " + g.flat + "?" : "was I mostly fine, maybe a " + g.flat + "?");
+    }
+    if (MOVING[act]) {
+      if (act === "Exercising") return "At " + t + " my heart was pounding. I was moving fast, " + m.steps10 + " steps in ten minutes.";
+      if (act === "On its feet working") return "At " + t + " my heart started racing. I'd been on my feet for " + stillPhrase(m.mins).replace("over ", "") + ", back and forth.";
+      return "At " + t + " my heart started racing. I was walking somewhere, " + m.steps10 + " steps in ten minutes.";
+    }
+    var sf = stillFor(m);
+    return "At " + t + " my heart started racing. I'd been sitting still for " + stillPhrase(Math.max(10, sf.mins)) +
+      (sf.since >= 720 && sf.since <= 840 && m.peakMin > 840 ? ", and hadn't moved since lunch." : ".");
   }
 
-  // ---------- badges ----------
-  var BADGE = {
-    due: '<svg class="badge" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="20" fill="#f47d31"/><path d="M13 10h10l5 5v15H13z" fill="#fff"/><path d="M23 10v5h5" fill="none" stroke="#f47d31" stroke-width="1.5"/><path d="M16 20h9M16 24h9" stroke="#f47d31" stroke-width="1.8" stroke-linecap="round"/></svg>',
-    behind: '<svg class="badge" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="20" fill="#5f2b89"/><circle cx="20" cy="20" r="10" fill="none" stroke="#fff" stroke-width="2.4"/><path d="M20 14v6l4 3" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    moving: '<svg class="badge" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="20" fill="#00a4ff"/><ellipse cx="15" cy="17" rx="3.6" ry="6" fill="#fff" transform="rotate(-12 15 17)"/><ellipse cx="25" cy="23" rx="3.6" ry="6" fill="#fff" transform="rotate(12 25 23)"/><circle cx="14" cy="26.5" r="2.2" fill="#fff"/><circle cx="26" cy="32" r="2.2" fill="#fff"/></svg>'
+  // ---------- the blob ----------
+  var V = [
+    "M50 4C78 4 96 24 96 52C96 76 90 86 50 86C10 86 4 76 4 52C4 24 22 4 50 4Z",
+    "M52 3C80 5 97 26 96 53C95 77 89 86 50 86C11 86 5 77 4 51C3 25 24 2 52 3Z",
+    "M48 5C76 3 95 23 97 51C97 76 91 86 50 86C9 86 3 75 5 53C6 26 20 6 48 5Z"
+  ];
+  var uid = 0;
+  function dims(k) { return { w: 40 + (k - 1) * 7, h: 56 - (k - 1) * 5.8 }; }
+  function mapPath(p, x0, y0, W, H) {
+    var i = 0;
+    return p.replace(/-?\d+(\.\d+)?/g, function (n) { var v = +n; var out = i % 2 === 0 ? x0 + (v - 4) / 92 * W : y0 + (v - 4) / 82 * H; i++; return out.toFixed(2); });
+  }
+  // opts: f (size), state, pal, stage (px box for sphere), still (no motion), label
+  function blob(k, opts) {
+    opts = opts || {};
+    k = Math.max(1, Math.min(7, k || 1));
+    var f = opts.f || 2, dm = dims(k), W = dm.w * f, H = dm.h * f, n = ++uid;
+    var state = opts.state || (k >= 4 ? "flat" : "wait");
+    var pal = opts.pal || ({ flat: "dusk", breathe: "sage", puff: "sage", work: "glow" }[state] || opts.bg || S.look.bg);
+    var col = lookColor(opts.color), sx = col[2] ? "-" + col[0] : "", u = function (id) { return "url(#" + id + sx + ")"; };
+    var stageW = opts.box || Math.max(W * 1.7, 56 * f * 1.25), stageH = opts.boxH || stageW;
+    var SW = W * 1.6, SH = H * 1.5, x0 = (SW - W) / 2, y0 = SH - H - H * 0.14;
+    var fs = (W + H) / 40, eyeY = y0 + H * 0.31 + fs, lid = 1 - (k - 1) * 0.08, drop = (k - 1) * 0.06 * fs;
+    var still = opts.still || REDUCED;
+    var paths = V.map(function (p) { return mapPath(p, x0, y0, W, H); });
+    var anim = still ? "" : '<animate attributeName="d" dur="' + (k >= 5 ? 8.1 : 5.4) + 's" repeatCount="indefinite" calcMode="spline" keyTimes="0;.33;.66;1" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1" values="' + paths[0] + ";" + paths[1] + ";" + paths[2] + ";" + paths[0] + '"/>';
+    var cx = x0 + W / 2;
+    function eye(x) {
+      return '<g transform="translate(0 ' + (eyeY * (1 - lid)).toFixed(2) + ') scale(1 ' + lid.toFixed(3) + ')"><g class="b-blink">' +
+        '<ellipse cx="' + x.toFixed(2) + '" cy="' + eyeY.toFixed(2) + '" rx="' + (0.75 * fs).toFixed(2) + '" ry="' + fs.toFixed(2) + '" fill="#2d2c2b" fill-opacity=".92"/>' +
+        '<ellipse cx="' + (x - 0.2 * fs).toFixed(2) + '" cy="' + (eyeY - 0.4 * fs).toFixed(2) + '" rx="' + (0.32 * fs).toFixed(2) + '" ry="' + (0.32 * fs).toFixed(2) + '" fill="#fff" fill-opacity=".95"/></g></g>';
+    }
+    var bub = function (c, rx, ry, r) { return '<circle cx="' + (x0 + rx * W).toFixed(1) + '" cy="' + (y0 + ry * H).toFixed(1) + '" r="' + (r * W).toFixed(2) + '" fill="url(#bBub)" stroke="#fff" stroke-opacity=".65" stroke-width=".6"/>'; };
+    var ey = eyeY + drop, ex = 1.6 * fs, F = function (v) { return v.toFixed(1); };
+    var ACC = {
+      // an empty thought bubble: nothing in there yet
+      brain: '<g class="a-think"><circle class="a-t1" cx="' + F(cx + W * 0.24) + '" cy="' + F(y0 + H * 0.02) + '" r="' + F(fs * 0.5) + '" fill="#fff" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<circle class="a-t2" cx="' + F(cx + W * 0.33) + '" cy="' + F(y0 - H * 0.1) + '" r="' + F(fs * 0.8) + '" fill="#fff" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<g class="a-cloud"><path d="M' + F(cx + W * 0.26) + " " + F(y0 - H * 0.2) + "a" + F(fs * 1.6) + " " + F(fs * 1.4) + " 0 0 1 " + F(fs * 2.4) + " " + F(-fs * 1.9) + "a" + F(fs * 1.9) + " " + F(fs * 1.7) + " 0 0 1 " + F(fs * 3.4) + " 0a" + F(fs * 1.6) + " " + F(fs * 1.4) + " 0 0 1 " + F(fs * 1.4) + " " + F(fs * 2.9) + "a" + F(fs * 1.5) + " " + F(fs * 1.3) + " 0 0 1 " + F(-fs * 2.2) + " " + F(fs * 1.9) + "h" + F(-fs * 3.2) + "a" + F(fs * 1.5) + " " + F(fs * 1.3) + " 0 0 1 " + F(-fs * 1.8) + " " + F(-fs * 2.9) + 'z" fill="#fff" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<circle class="a-fly" cx="' + F(cx + W * 0.26 + fs * 3.4) + '" cy="' + F(y0 - H * 0.2 - fs * 0.6) + '" r="' + F(fs * 0.22) + '" fill="#cfc7c0"/></g></g>',
+      // reading glasses and an open book
+      read: '<g fill="none" stroke="#2d2c2b" stroke-width="' + F(fs * 0.28) + '"><circle cx="' + F(cx - ex) + '" cy="' + F(ey) + '" r="' + F(fs * 1.55) + '"/><circle cx="' + F(cx + ex) + '" cy="' + F(ey) + '" r="' + F(fs * 1.55) + '"/>' +
+        '<path d="M' + F(cx - ex + fs * 1.55) + " " + F(ey - fs * 0.2) + "q" + F(ex - fs * 1.55) + " " + F(-fs * 0.7) + " " + F(2 * (ex - fs * 1.55)) + ' 0"/></g>' +
+        '<g class="a-book"><path d="M' + F(cx) + " " + F(y0 + H * 0.66) + "l" + F(-W * 0.36) + " " + F(-H * 0.07) + "v" + F(H * 0.24) + "l" + F(W * 0.36) + " " + F(H * 0.07) + "l" + F(W * 0.36) + " " + F(-H * 0.07) + "v" + F(-H * 0.24) + 'z" fill="#5f2b89"/>' +
+        '<path d="M' + F(cx) + " " + F(y0 + H * 0.64) + "l" + F(-W * 0.33) + " " + F(-H * 0.08) + "v" + F(H * 0.23) + "l" + F(W * 0.33) + " " + F(H * 0.08) + "l" + F(W * 0.33) + " " + F(-H * 0.08) + "v" + F(-H * 0.23) + 'z" fill="#fdfcfc" stroke="#e2ded9" stroke-width=".8"/>' +
+        '<path d="M' + F(cx) + " " + F(y0 + H * 0.64) + "v" + F(H * 0.23) + '" stroke="#d9d3cd" stroke-width="1"/>' +
+        '<g stroke="#d9d3cd" stroke-width="1">' + [0, 1, 2].map(function (j) { var yy = y0 + H * (0.62 + j * 0.05); return '<path d="M' + F(cx - W * 0.27) + " " + F(yy) + "l" + F(W * 0.22) + " " + F(H * 0.05) + "M" + F(cx + W * 0.05) + " " + F(yy + H * 0.05) + "l" + F(W * 0.22) + " " + F(-H * 0.05) + '"/>'; }).join("") + "</g></g>",
+      // not sure: a question mark and a sweat drop
+      puzzled: '<text class="a-q" x="' + F(cx + W * 0.2) + '" y="' + F(y0 - H * 0.12) + '" font-family="DM Sans, system-ui, sans-serif" font-weight="700" font-size="' + F(fs * 5.5) + '" fill="#5f2b89">?</text>' +
+        '<path class="a-drop" d="M' + F(x0 + W * 0.14) + " " + F(y0 + H * 0.12) + "c" + F(fs * 0.7) + " " + F(fs * 1.2) + " " + F(fs * 1.1) + " " + F(fs * 1.8) + " " + F(fs * 1.1) + " " + F(fs * 2.4) + "a" + F(fs * 1.1) + " " + F(fs * 1.1) + " 0 0 1 " + F(-fs * 2.2) + " 0c0 " + F(-fs * 0.6) + " " + F(fs * 0.4) + " " + F(-fs * 1.2) + " " + F(fs * 1.1) + " " + F(-fs * 2.4) + 'z" fill="#8fd3ff" stroke="#fff" stroke-width=".8"/>',
+      // writing it down in a notebook
+      write: '<g class="a-note"><rect x="' + F(cx - W * 0.4) + '" y="' + F(y0 + H * 0.6) + '" width="' + F(W * 0.8) + '" height="' + F(H * 0.3) + '" rx="' + F(fs * 0.6) + '" fill="#fdfcfc" stroke="#e2ded9" stroke-width=".8"/>' +
+        '<rect x="' + F(cx - W * 0.4) + '" y="' + F(y0 + H * 0.6) + '" width="' + F(W * 0.8) + '" height="' + F(H * 0.045) + '" rx="' + F(fs * 0.3) + '" fill="#0061ef"/>' +
+        '<path class="a-ink" pathLength="1" d="M' + F(cx - W * 0.3) + " " + F(y0 + H * 0.73) + "q" + F(W * 0.05) + " " + F(-H * 0.04) + " " + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0M" + F(cx - W * 0.3) + " " + F(y0 + H * 0.82) + "q" + F(W * 0.05) + " " + F(-H * 0.04) + " " + F(W * 0.1) + " 0t" + F(W * 0.1) + " 0t" + F(W * 0.1) + ' 0" fill="none" stroke="#2d2c2b" stroke-width="1.4" stroke-linecap="round"/>' +
+        '<g class="a-pencil"><g transform="translate(' + F(cx + W * 0.12) + " " + F(y0 + H * 0.74) + ') rotate(-40)"><path d="M0 0l' + F(fs * 0.7) + " " + F(-fs * 0.45) + "h" + F(fs * 6) + "v" + F(fs * 0.9) + "h" + F(-fs * 6) + 'z" fill="#f47d31"/><path d="M0 0l' + F(fs * 0.7) + " " + F(-fs * 0.45) + "v" + F(fs * 0.9) + 'z" fill="#f5d6b8"/><circle cx="' + F(fs * 0.15) + '" cy="0" r="' + F(fs * 0.18) + '" fill="#2d2c2b"/><rect x="' + F(fs * 6.7) + '" y="' + F(-fs * 0.45) + '" width="' + F(fs * 0.9) + '" height="' + F(fs * 0.9) + '" rx="' + F(fs * 0.2) + '" fill="#ffa1cc"/></g></g></g>',
+      // a little blush
+      blush: '<g class="a-blush"><ellipse cx="' + F(cx - ex - fs * 1.3) + '" cy="' + F(ey + fs * 1.5) + '" rx="' + F(fs * 1.05) + '" ry="' + F(fs * 0.55) + '" fill="#ff7fae" fill-opacity=".5" filter="url(#blur1_5)"/>' +
+        '<ellipse cx="' + F(cx + ex + fs * 1.3) + '" cy="' + F(ey + fs * 1.5) + '" rx="' + F(fs * 1.05) + '" ry="' + F(fs * 0.55) + '" fill="#ff7fae" fill-opacity=".5" filter="url(#blur1_5)"/></g>'
+    };
+    var acc = opts.acc && ACC[opts.acc] ? '<g class="acc acc-' + opts.acc + '">' + ACC[opts.acc] + "</g>" : "";
+    var sphereD = stageW * 0.9;
+    var svg = '<svg class="bsvg" width="' + SW.toFixed(1) + '" height="' + SH.toFixed(1) + '" viewBox="0 0 ' + SW.toFixed(1) + " " + SH.toFixed(1) + '" style="left:' + ((stageW - SW) / 2).toFixed(1) + 'px;bottom:' + (stageH * 0.16).toFixed(1) + 'px;--rise:' + (-H * 0.35).toFixed(1) + 'px;--look:' + (0.45 * fs).toFixed(2) + 'px;--upv:' + (0.5 * fs).toFixed(2) + 'px" aria-hidden="true">' +
+      '<defs><path id="bp' + n + '" d="' + paths[0] + '">' + anim + '</path><clipPath id="bc' + n + '"><use href="#bp' + n + '"/></clipPath></defs>' +
+      '<ellipse cx="' + cx + '" cy="' + (y0 + H + H * 0.06).toFixed(1) + '" rx="' + (W * 0.67).toFixed(1) + '" ry="' + (H * 0.11).toFixed(1) + '" fill="' + u("bShadow") + '" filter="url(#blur1_5)"/>' +
+      '<g class="b-lean"><g class="b-squash">' +
+      '<ellipse class="b-halo" cx="' + cx + '" cy="' + (y0 + H * 0.5).toFixed(1) + '" rx="' + (W * 0.66).toFixed(1) + '" ry="' + (H * 0.62).toFixed(1) + '" fill="' + u("bHalo") + '"/>' +
+      '<g clip-path="url(#bc' + n + ')">' +
+      '<use href="#bp' + n + '" fill="' + u("bFill") + '"/><use href="#bp' + n + '" fill="' + u("bBase") + '"/><use href="#bp' + n + '" fill="' + u("bTop") + '"/>' +
+      '<g class="b-core"><ellipse cx="' + cx + '" cy="' + (y0 + H * 0.68).toFixed(1) + '" rx="' + (W * 0.35).toFixed(1) + '" ry="' + (H * 0.33).toFixed(1) + '" fill="' + u("bCore") + '"/></g>' +
+      '<g class="b-bub b1">' + bub(0, 0.7, 0.66, 0.035) + '</g><g class="b-bub b2">' + bub(0, 0.3, 0.76, 0.021) + '</g><g class="b-bub b3">' + bub(0, 0.55, 0.87, 0.014) + "</g>" +
+      '<ellipse cx="' + cx + '" cy="' + (y0 + H * 0.965).toFixed(1) + '" rx="' + (W * 0.41).toFixed(1) + '" ry="' + (H * 0.088).toFixed(1) + '" fill="' + u("bRim") + '"/>' +
+      '<g class="b-hl"><ellipse cx="' + (x0 + W * 0.37).toFixed(1) + '" cy="' + (y0 + H * 0.22).toFixed(1) + '" rx="' + (W * 0.185).toFixed(1) + '" ry="' + (H * 0.11).toFixed(1) + '" fill="url(#bSpec)" transform="rotate(-18 ' + (x0 + W * 0.37).toFixed(1) + " " + (y0 + H * 0.22).toFixed(1) + ')"/>' +
+      '<circle cx="' + (x0 + W * 0.65).toFixed(1) + '" cy="' + (y0 + H * 0.19).toFixed(1) + '" r="' + (W * 0.024).toFixed(2) + '" fill="#fff" fill-opacity=".9"/></g>' +
+      '<use href="#bp' + n + '" fill="' + u("bEdge") + '"/></g>' +
+      '<use href="#bp' + n + '" fill="none" stroke="' + hueShift("#d68c00", col[2], col[3], col[4]) + '" stroke-opacity=".28" stroke-width="1"/>' +
+      '<g transform="translate(0 ' + drop.toFixed(2) + ')"><g class="b-up"><g class="b-look">' + eye(cx - 1.6 * fs) + eye(cx + 1.6 * fs) + "</g></g></g>" +
+      acc + "</g></g></svg>";
+    return '<div class="bstage st-' + state + (opts.loop ? " loop" : "") + (k >= 5 ? " slow" : "") + (still ? " static" : "") + '" style="width:' + stageW.toFixed(0) + "px;height:" + stageH.toFixed(0) + 'px"' +
+      (opts.label ? ' role="img" aria-label="' + esc(opts.label) + '"' : ' aria-hidden="true"') + ">" +
+      (opts.noSphere ? "" : '<div class="sphere pal-' + pal + '" style="width:' + sphereD.toFixed(0) + "px;height:" + sphereD.toFixed(0) + "px;left:" + ((stageW - sphereD) / 2).toFixed(0) + "px;top:" + ((stageH - sphereD) / 2).toFixed(0) + 'px"></div>') +
+      svg + "</div>";
+  }
+  function mini(k, label) { return blob(k, { f: 0.62, still: true, noSphere: true, box: 40, boxH: 40, label: label }); }
+
+  // ---------- icons ----------
+  var ICON = {
+    back: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2d2c2b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+    home: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>',
+    stories: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 5h14v10H10l-5 4z"/></svg>',
+    learned: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.2 5.6L20 9.5l-4.4 3.8L17 19l-5-3-5 3 1.4-5.7L4 9.5l5.8-.9z"/></svg>',
+    blob: '<svg width="22" height="22" viewBox="0 0 100 90" fill="none" stroke="currentColor" stroke-width="9"><path d="' + V[0] + '"/></svg>',
+    tick: '<svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#ffe9a6"/><path d="M6 10.5l2.6 2.5L14 7.5" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
 
-  // ---------- scenes ----------
-  function sceneBlob(k, cx, baseY, f) {
-    var d = dims(k, f);
-    return '<svg x="' + (cx - d.w / 2).toFixed(1) + '" y="' + (baseY - d.h).toFixed(1) + '" width="' + d.w.toFixed(1) + '" height="' + d.h.toFixed(1) +
-      '" viewBox="0 0 100 90" preserveAspectRatio="none"><path d="' + BLOB_PATH + '" fill="#ffce00"/></svg>';
+  // ---------- routing ----------
+  var app = document.getElementById("app");
+  var overlay = null; // { type: "popup" | "after", ... }
+  function go(h) { if (location.hash === h) render(); else location.hash = h; }
+  function route() {
+    var h = (location.hash || "").slice(1);
+    if (!S.onboarded && !/^(intro|step[1-6])$/.test(h)) return { name: "intro" };
+    if (!h) return { name: "home" };
+    var p = h.split("/");
+    return { name: p[0], arg: p.slice(1).join("/") };
   }
-  function deskScene(k, label) {
-    return '<div class="scene"><svg viewBox="0 0 400 240" role="img" aria-label="' + esc(label || "The blob at its desk at night") + '">' +
-      '<rect x="236" y="26" width="128" height="100" rx="10" fill="#281466"/>' +
-      '<path d="M300 26v100M236 76h128" stroke="#0061ef" stroke-width="5"/>' +
-      '<circle cx="336" cy="50" r="13" fill="#ffce00"/>' +
-      sceneBlob(k, 186, 196, 2.3) +
-      '<rect x="40" y="170" width="320" height="16" rx="6" fill="#fff"/>' +
-      '<rect x="62" y="186" width="12" height="54" fill="#fff"/><rect x="326" y="186" width="12" height="54" fill="#fff"/>' +
-      '<path d="M150 170l8-40h70l8 40z" fill="#2d2c2b"/><rect x="138" y="166" width="110" height="5" rx="2" fill="#44423f"/>' +
-      '<path d="M84 170v-44l22-22" fill="none" stroke="#2d2c2b" stroke-width="4" stroke-linecap="round"/>' +
-      '<path d="M96 96l30 6-12 22z" fill="#f47d31"/><rect x="70" y="166" width="28" height="6" rx="3" fill="#2d2c2b"/>' +
-      "</svg></div>";
-  }
-  function trayScene(k, label) {
-    var bd = dims(k, 2.5), tx = 150 + bd.w / 2 - 26, ty = 216 - bd.h * 0.62;
-    return '<div class="scene"><svg viewBox="0 0 400 240" role="img" aria-label="' + esc(label || "The blob on its feet, carrying a tray") + '">' +
-      '<rect x="0" y="214" width="400" height="26" fill="#0052cc"/>' +
-      sceneBlob(k, 150, 216, 2.5) +
-      '<circle cx="330" cy="62" r="26" fill="#f47d31"/>' +
-      '<g transform="translate(' + (tx - 206).toFixed(1) + " " + (ty - 120).toFixed(1) + ')">' +
-      '<rect x="206" y="120" width="150" height="10" rx="5" fill="#fff"/>' +
-      '<ellipse cx="244" cy="114" rx="26" ry="7" fill="#fff" stroke="#e2ded9" stroke-width="2"/>' +
-      '<ellipse cx="300" cy="114" rx="22" ry="6" fill="#fff" stroke="#e2ded9" stroke-width="2"/>' +
-      '<path d="M330 82h16l-3 38h-10z" fill="#ffa1cc"/></g>' +
-      "</svg></div>";
-  }
-  function scene(moving, k, label) { return moving ? trayScene(k, label) : deskScene(k, label); }
 
-  // ---------- heart-rate chart ----------
-  function hrChart(d, from, to, opts) {
-    opts = opts || {};
-    var W = opts.w || 1000, H = opts.h || 300, L = 36, R = 12, T = 22, B = 30;
+  function tabbar(active) {
+    var tabs = [["home", "Home"], ["stories", "Stories"], ["learned", "Learned"], ["blob", "Blob"]];
+    return '<nav class="tabbar" aria-label="Main">' + tabs.map(function (t) {
+      return '<a class="tab" href="#' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : "") + '><span class="ic">' + ICON[t[0]] + "</span>" + t[1] + "</a>";
+    }).join("") + "</nav>";
+  }
+
+  // ---------- onboarding ----------
+  var OB = [
+    { kicker: "Hello, meet", h: "BLOB", body: "Blob is well… A blob,<br>blob doesn’t know how to feel because well… its a blob.", btn: "Would you like to help blob?", blob: { k: 1, state: "wait" }, intro: true },
+    { h: "Blob feels things,<br>but it doesn’t know<br>how to <em>feel</em> them.", sub: "But you do…", btn: "But you do…", blob: { k: 1, state: "bounce", acc: "brain" }, big: true },
+    { h: "Blob can however<br>tell <em>you</em> a story", body: "Each evening, the blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.", btn: "Next", blob: { k: 1, state: "wait", acc: "read" } },
+    { h: "You might be able to<br>help blob understand.", body: "You fill in what was going on for the blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat", acc: "puzzled" } },
+    { h: "You can teach it to learn", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it’s right or wrong.",
+      quote: "“Sitting still, heart racing. I think that was my pressure again.”", btn: "Next", blob: { k: 1, state: "work", acc: "write" } },
+    { h: "It asks for a little care", body: "When it’s flattened, the blob might ask you to breathe slowly with it, or rest. As your heart settles, you’ll see it puff back up.",
+      ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Next", blob: { k: 1, state: "puff", acc: "blush" } },
+    { h: "Choose your blob", btn: "Meet my blob", blob: { k: 1, state: "wait" }, choose: true }
+  ];
+  function viewOnboarding(i) {
+    var o = OB[i];
+    var head = i === 0 ? '<div class="ob-head"></div>' :
+      '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" aria-label="Step ' + i + ' of 6">' +
+      [1, 2, 3, 4, 5, 6].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
+    var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, acc: o.blob.acc, loop: true, box: 330, label: "The blob" }) + "</div>";
+    var btn = '<button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button>";
+    if (o.choose) return '<div class="screen"><div class="ob ob-center ob-choose">' + head +
+      '<div class="ob-blob" id="lookblob">' + blob(1, { f: 3.3, state: "wait", loop: true, box: 330, label: "Your blob, " + lookColor()[1] }) + "</div>" +
+      "<h1>" + o.h + "</h1>" + lookPicker() + btn + "</div></div>";
+    if (o.intro) return '<div class="screen"><div class="ob ob-intro">' + head +
+      '<p class="kicker">' + o.kicker + '</p><h1 class="wordmark">' + o.h + "</h1>" + art +
+      '<p class="body">' + o.body + "</p>" + btn + "</div></div>";
+    return '<div class="screen"><div class="ob ob-center' + (o.big ? " ob-big" : "") + '">' + head + art + "<h1>" + o.h + "</h1>" +
+      (o.sub ? '<p class="sub">' + o.sub + "</p>" : "") +
+      (o.body ? '<p class="body">' + o.body + "</p>" : "") +
+      (o.quote ? '<p class="quote">' + o.quote + "</p>" : "") +
+      (o.ticks ? '<ul class="ticks">' + o.ticks.map(function (t) { return "<li>" + ICON.tick + "<span>" + t + "</span></li>"; }).join("") + "</ul>" : "") +
+      btn + "</div></div>";
+  }
+
+  function lookPicker() {
+    var col = '<p class="pick-h">Colour</p><div class="swatches" role="radiogroup" aria-label="Colour">' + COLORS.map(function (c) {
+      return '<button class="sw' + (S.look.color === c[0] ? " on" : "") + '" role="radio" aria-checked="' + (S.look.color === c[0]) + '" data-act="look" data-k="color" data-v="' + c[0] + '" aria-label="' + c[1] + '">' +
+        '<span class="sw-dot" style="background:radial-gradient(circle at 36% 30%,' + hueShift("#fff4be", c[2], c[3], c[4]) + "," + hueShift("#ffd832", c[2], c[3], c[4]) + " 45%," + hueShift("#f09e00", c[2], c[3], c[4]) + ')"></span><span>' + c[1] + "</span></button>";
+    }).join("") + "</div>";
+    var bg = '<p class="pick-h">Background</p><div class="swatches" role="radiogroup" aria-label="Background">' + BGS.map(function (b) {
+      return '<button class="sw' + (S.look.bg === b[0] ? " on" : "") + '" role="radio" aria-checked="' + (S.look.bg === b[0]) + '" data-act="look" data-k="bg" data-v="' + b[0] + '" aria-label="' + b[1] + '">' +
+        '<span class="sw-dot pal-' + b[0] + '"></span><span>' + b[1] + "</span></button>";
+    }).join("") + "</div>";
+    return '<div class="picker">' + col + bg + "</div>";
+  }
+
+  // ---------- home ----------
+  function todayLevel() {
+    var t = todayDay(), flats = t.moments.filter(answered).map(function (m) { return careAfter(m); });
+    return flats.length ? Math.max(1, Math.round(mean(flats))) : 2;
+  }
+  function careAfter(m) { var c = S.care[m.id], a = ans(m); return c && c.settled ? Math.max(1, a.flat - 2) : a.flat; }
+  var LEVEL_LINE = { 1: "Round and bouncing today.", 2: "Mostly bouncing along today.", 3: "A little squashed today.", 4: "Fairly flattened today.", 5: "Quite flat today.", 6: "Very flat today.", 7: "Completely flattened today." };
+  function homeChart(d) {
+    var W = 320, H = 150, L = 6, R = 6, T = 14, B = 22, from = 360, to = 1080;
+    var vals = d.series.filter(function (p) { return p[0] >= from && p[0] <= NOW; }).map(function (p) { return p[1]; });
+    var lo = Math.min(d.rhr - 8, Math.min.apply(null, vals) - 4), hi = Math.max(d.rhr + 40, Math.max.apply(null, vals) + 6);
     var x = function (m) { return L + (m - from) / (to - from) * (W - L - R); };
-    var y = function (b) { return T + (1 - (Math.max(40, Math.min(180, b)) - 40) / 140) * (H - T - B); };
-    var pts = d.series.filter(function (p) { return p[0] >= from - 5 && p[0] <= to; });
+    var y = function (b) { return T + (1 - (b - lo) / (hi - lo)) * (H - T - B); };
     var g = "";
-    [64, 100, 140].forEach(function (b) {
-      g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(b) + '" y2="' + y(b) + '" stroke="var(--line)"/>' +
-        '<text x="' + (L - 6) + '" y="' + (y(b) + 4) + '" text-anchor="end">' + b + "</text>";
+    d.moments.forEach(function (m) {
+      var mv = isMoving(m), c = mv ? "#f47d31" : "#5f2b89";
+      g += '<rect x="' + x(m.start).toFixed(1) + '" y="' + T + '" width="' + Math.max(4, x(m.end) - x(m.start)).toFixed(1) + '" height="' + (H - T - B) + '" rx="6" fill="' + c + '" fill-opacity=".1"/>';
     });
-    g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(d.rhr) + '" y2="' + y(d.rhr) + '" stroke="var(--plum)" stroke-width="1.5" stroke-dasharray="5 5"/>';
-    // steps
-    var bh = (H - T - B) * 0.22, bw = Math.max(1.5, (W - L - R) / ((to - from) / 5) * 0.6);
-    pts.forEach(function (p) {
-      if (!p[2]) return;
-      var hgt = Math.min(p[2], 700) / 700 * bh;
-      g += '<rect x="' + (x(p[0]) - bw / 2).toFixed(1) + '" y="' + (H - B - hgt).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" fill="var(--sky)" opacity="' + (p[3] ? 0.35 : 0.8) + '" rx="1"/>';
+    d.series.forEach(function (p) {
+      if (p[0] < from || p[0] > NOW || !p[2]) return;
+      var h = Math.min(p[2], 600) / 600 * 22;
+      g += '<rect x="' + (x(p[0]) - 1.2).toFixed(1) + '" y="' + (H - B - h).toFixed(1) + '" width="2.4" height="' + h.toFixed(1) + '" rx="1" fill="#2d2c2b" fill-opacity=".12"/>';
     });
-    // line, split into real and filled runs
-    var runs = [], cur = null;
-    pts.forEach(function (p, i) {
-      if (p[1] == null) { cur = null; return; }
-      if (!cur || cur.f !== p[3]) {
-        var prev = cur && cur.pts[cur.pts.length - 1];
-        cur = { f: p[3], pts: prev ? [prev] : [] };
-        runs.push(cur);
-      }
-      cur.pts.push(p);
+    var th = d.rhr + 25;
+    g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(th).toFixed(1) + '" y2="' + y(th).toFixed(1) + '" stroke="#5c5853" stroke-width="1" stroke-dasharray="4 4" stroke-opacity=".6"/>' +
+      '<text x="' + (W - R) + '" y="' + (y(th) - 4).toFixed(1) + '" text-anchor="end">rest + 25</text>';
+    var pts = d.series.filter(function (p) { return p[0] >= from && p[0] <= NOW; });
+    g += '<path d="' + pts.map(function (p, i) { return (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1); }).join("") + '" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    d.moments.forEach(function (m) {
+      g += '<circle cx="' + x(m.peakMin).toFixed(1) + '" cy="' + y(m.bpm).toFixed(1) + '" r="5" fill="' + (isMoving(m) ? "#f47d31" : "#5f2b89") + '" stroke="#fdfcfc" stroke-width="2"/>';
     });
-    runs.forEach(function (run) {
-      var dd = run.pts.map(function (p, i) { return (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1); }).join("");
-      g += run.f
-        ? '<path d="' + dd + '" fill="none" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="4 4" opacity="0.55"/>'
-        : '<path d="' + dd + '" fill="none" stroke="var(--ink)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>';
+    g += '<line x1="' + x(NOW).toFixed(1) + '" x2="' + x(NOW).toFixed(1) + '" y1="' + (T - 6) + '" y2="' + (H - B) + '" stroke="#2d2c2b" stroke-width="1"/>' +
+      '<text x="' + (x(NOW) - 4).toFixed(1) + '" y="' + (T - 2) + '" text-anchor="end" style="font-weight:700;fill:#2d2c2b">Now</text>';
+    [[360, "6am"], [540, "9am"], [720, "12pm"], [900, "3pm"], [1080, "6pm"]].forEach(function (t, i) {
+      g += '<text x="' + x(t[0]).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === 0 ? "start" : i === 4 ? "end" : "middle") + '">' + t[1] + "</text>";
     });
-    // moments
-    var lastX = -1e9, flip = false;
-    moments(d).forEach(function (m, i) {
-      if (m.peakMin < from || m.peakMin > to) return;
-      var cx = x(m.peakMin), cy = y(m.bpm), c = ACT_COLOR[ans(d, m).activity];
-      var sel = opts.sel === i;
-      flip = cx - lastX < 60 ? !flip : false;
-      lastX = cx;
-      var ly = flip ? cy + 26 : cy - 14;
-      g += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (sel ? 9 : 7) + '" fill="' + c + '" stroke="var(--card)" stroke-width="3"/>' +
-        (m.marked ? '<circle cx="' + cx + '" cy="' + cy + '" r="' + (sel ? 13 : 11) + '" fill="none" stroke="var(--ink)" stroke-width="1.5"/>' : "") +
-        '<text x="' + cx + '" y="' + ly + '" text-anchor="middle" style="fill:var(--ink);font-weight:700;paint-order:stroke;stroke:var(--card);stroke-width:4px">' + fmtTime(m.peakMin) + "</text>";
-    });
-    // ticks
-    var ticks = opts.ticks || [0, 360, 720, 1080, 1440];
-    ticks.forEach(function (m) {
-      var lab = m === 720 ? "noon" : fmtTime(m);
-      g += '<text x="' + x(m) + '" y="' + (H - 8) + '" text-anchor="middle">' + lab + "</text>";
-    });
-    return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + esc(opts.label) + '">' + g + "</svg>";
+    return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Its heart rate from 6am to now, with ' + d.moments.length + ' moments when it rose">' + g + "</svg>";
   }
-  function legend(d) {
-    return '<div class="legend"><span><i class="lg-bar"></i>Steps</span>' +
-      ACTS.map(function (a) { return '<span><i class="sw" style="background:' + ACT_COLOR[a] + '"></i>' + a + "</span>"; }).join("") +
-      (d.filled > 0 ? '<span><i class="lg-dash"></i>Missing from the export, filled from a usual day</span>' : "") + "</div>";
+  function viewHome() {
+    var d = todayDay(), lv = todayLevel(), n = d.moments.length;
+    var waiting = storiesOf(d).filter(function (m) { return !ans(m); }).length;
+    var h = '<div class="screen with-tabs"><p class="date">' + longDate(TODAY) + '</p><h1 class="title">The blob\'s day</h1>' +
+      '<section class="card blobcard">' + blob(lv, { f: 1.9, box: 160, label: "The blob, " + lv + " of 7 flat" }) +
+      '<div><p class="caption" style="font-weight:500">How flat it is</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small" style="margin:8px 0 12px">' + LEVEL_LINE[lv] + "</p>" +
+      '<span class="chip"><i class="dot" style="background:#5f2b89"></i>' + n + " moment" + (n === 1 ? "" : "s") + " today</span></div></section>" +
+      '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
+      '<div class="stats"><div class="stat"><b>' + Math.round(d.rhr) + '</b><span>resting bpm</span></div><div class="stat"><b>' + d.steps.toLocaleString("en-AU") + '</b><span>steps</span></div><div class="stat"><b>' + n + "</b><span>moments</span></div></div>";
+    if (d.nRises > 4) h += '<p class="small" style="margin-top:10px">The blob will ask you about the biggest 4 tonight.</p>';
+    h += waiting
+      ? '<section class="card dark ready"><div><h2 class="section">' + waiting + " stor" + (waiting === 1 ? "y" : "ies") + ' ready tonight</h2><p class="small smoke" style="margin-top:4px">Help it understand its day</p></div><button class="btn small-btn" data-act="read">Read</button></section>'
+      : '<section class="card dark ready"><div><h2 class="section">It knows its day</h2><p class="small smoke" style="margin-top:4px">Every story is saved. See them in Stories.</p></div><a class="btn small-btn" href="#stories">Stories</a></section>';
+    return h + "</div>" + tabbar("home");
   }
 
-  // ---------- learning ----------
-  function links() {
-    var still = [], moving = [];
-    DAYS.forEach(function (d) { usable(d).forEach(function (u) { (u.a.moving ? moving : still).push(u.a.pressure); }); });
-    var l1 = { diff: mean(still) - mean(moving), n: still.length + moving.length, thr: 1,
-      name: "Sitting still vs moving",
-      text: "When its heart raced while it sat still, you said it felt " + f1(mean(still)) + "/7. When it raced while moving, " + f1(mean(moving)) + "/7." };
+  // ---------- popup ----------
+  function nextStory(d) { return storiesOf(d || todayDay()).filter(function (m) { return !ans(m); })[0]; }
+  function viewPopup(m) {
+    var g = selfGuess(m), lv = g.stage >= 2 ? g.flat : 4;
+    return '<div class="backdrop" data-act="close"></div><div class="sheet" role="dialog" aria-label="The blob has a story"><div class="grab"></div>' +
+      '<div style="display:flex;justify-content:center">' + blob(lv, { f: 1.6, pal: "dusk", box: 170, boxH: 150 }) + "</div>" +
+      '<p class="meta">' + ampm(m.peakMin) + " · " + (MOVING[m.watch] ? "On the move" : "Sitting still") + "</p><h2>The blob has a story</h2>" +
+      '<p class="vig">' + esc(vignette(m)) + "</p>" +
+      '<div class="chips"><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div>" +
+      '<button class="btn" data-go="#story/' + m.id + '">Help it understand</button><button class="textbtn" data-act="close">Not now</button></div>';
+  }
 
-    var hi = [], lo = [], xs = [], ys = [];
-    DAYS.forEach(function (d) {
-      var w = whole(d); if (w == null) return;
-      (d.steps >= 10000 ? hi : lo).push(w); xs.push(d.steps); ys.push(w);
-    });
-    var l2 = { diff: mean(lo) - mean(hi), n: hi.length + lo.length, thr: 0.8, r: pearson(xs, ys),
-      name: "Steps and the whole day",
-      text: "On days with 10,000+ steps, the blob ended up " + f1(mean(hi)) + "/7. On quieter days, " + f1(mean(lo)) + "/7." };
-
-    var aH = [], aL = [];
-    for (var i = 0; i < DAYS.length - 1; i++) {
-      var w = whole(DAYS[i]);
-      if (w >= 4) aH.push(DAYS[i + 1].rhr); else if (w <= 2) aL.push(DAYS[i + 1].rhr);
+  // ---------- story decision ----------
+  var draft = {};
+  function draftFor(m) {
+    if (draft.id !== m.id) {
+      var a = S.answers[m.id] || ans(m), g = selfGuess(m);
+      draft = { id: m.id, activity: (a && a.activity) || m.watch, due: a ? a.due : null, onTop: a ? a.onTop : null,
+        flat: a && a.flat ? a.flat : g.stage >= 2 ? g.flat : null, guess: g };
     }
-    var l4 = { diff: mean(aH) - mean(aL), n: aH.length + aL.length, thr: 1.5, name: "Its resting heartbeat the next day",
-      text: "After heavy days, the blob's resting heartbeat was " + f1(mean(aH)) + " bpm. After light days, " + f1(mean(aL)) + " bpm." };
-    if (!aH.length || !aL.length) l4.n = 0;
-
-    var titles = [
-      "Before a long sit at the desk tonight, let's move for 10 minutes first.",
-      "Quieter days leave the blob flatter. Let's get a walk in before the evening.",
-      "After a heavy day, let's start the next one gently. Your heart is still catching up."
-    ];
-    return [l1, l2, l4].map(function (l, i) {
-      l.id = "s" + (i + 1); l.title = titles[i];
-      l.chip = l.n < 6 ? "Needs more days" : Math.abs(l.diff) < l.thr ? "Not sure yet" : "Starting to see it";
-      l.ok = l.chip === "Starting to see it" && l.diff > 0;
-      return l;
-    });
+    return draft;
   }
-  function pearson(xs, ys) {
-    var mx = mean(xs), my = mean(ys), a = 0, b = 0, c = 0;
-    for (var i = 0; i < xs.length; i++) { a += (xs[i] - mx) * (ys[i] - my); b += Math.pow(xs[i] - mx, 2); c += Math.pow(ys[i] - my, 2); }
-    return b && c ? a / Math.sqrt(b * c) : 0;
+  function viewStory(id) {
+    var m = byId[id];
+    if (!m) return viewHome();
+    var d = m.day, list = storiesOf(d), i = list.indexOf(m), dr = draftFor(m), g = dr.guess;
+    var lv = dr.flat || (g.stage >= 2 ? g.flat : 4);
+    var opt = function (key, v, label) { return '<button class="opt" role="radio" aria-checked="' + (dr[key] === v) + '" data-act="d" data-k="' + key + '" data-v="' + esc(JSON.stringify(v)) + '">' + label + "</button>"; };
+    var h = '<div class="screen"><div class="dhead"><button class="back" data-act="storyback" aria-label="Not now">' + ICON.back + "</button>" +
+      '<div class="pdots">' + list.map(function (_, j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + '</div><span class="count">' + (i + 1) + " of " + list.length + "</span></div>" +
+      '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + lv + " of 7 flat" }) + "</div>" +
+      '<div class="storycard"><p class="vig">' + esc(vignette(m)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + '</span><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div></div>" +
+      '<div class="q"><h3>What was I doing?</h3><p class="help">My watch thinks I was ' + VOICE[m.watch] + '.</p><div class="opts" role="radiogroup" aria-label="What was I doing?">' +
+      ACTS.map(function (a) { return opt("activity", a, a); }).join("") + "</div></div>" +
+      '<div class="q"><h3>Was something due for me?</h3><div class="toggles" role="radiogroup" aria-label="Was something due for me?">' + opt("due", true, "Yes") + opt("due", false, "No") + "</div></div>" +
+      '<div class="q"><h3>Was I on top of things?</h3><div class="toggles" role="radiogroup" aria-label="Was I on top of things?">' + opt("onTop", true, "Yes") + opt("onTop", false, "Not really") + "</div></div>" +
+      '<div class="q"><h3>How flat did I get?</h3><div class="flats" role="radiogroup" aria-label="How flat did I get?">' +
+      [1, 2, 3, 4, 5, 6, 7].map(function (k) { return '<button class="ftile" role="radio" aria-checked="' + (dr.flat === k) + '" aria-label="' + k + ' of 7" data-act="d" data-k="flat" data-v="' + k + '">' + mini(k) + "<span>" + k + "</span></button>"; }).join("") +
+      '</div><div class="fends"><span>Not flat at all</span><span>Completely flat</span></div></div>' +
+      '<div class="actions"><button class="btn" data-act="savestory"' + (dr.flat ? "" : " disabled style=\"opacity:.45\"") + '>Save this story</button><button class="textbtn" data-act="cant">I can\'t remember</button></div></div>';
+    return h;
   }
-  function suggestions() { return links().filter(function (l) { return l.ok; }); }
 
-  function effects() {
-    var st = DATA.stories.map(function (_, i) { return story(i); });
-    function eff(f) {
-      return mean(st.filter(function (s) { return s[f]; }).map(function (s) { return s.blob; })) -
-        mean(st.filter(function (s) { return !s[f]; }).map(function (s) { return s.blob; }));
+  function reflection(m, a, g) {
+    var k = kind(!!MOVING[a.activity], a.flat), names = { Pressure: "pressure", Overload: "overload", Effort: "effort", Neither: "nothing much" };
+    if (a.activity !== m.watch) return "Oh, I was " + VOICE[a.activity] + ", not " + VOICE[m.watch] + ". I'll remember that.";
+    if (g.stage >= 2 && (k !== g.kind || Math.abs(a.flat - g.flat) >= 2)) {
+      return "Oh, so that one was " + names[k] + ", not " + names[g.kind] + ". I was " + VOICE[a.activity] + ". I'll remember that.";
     }
-    return { due: eff("due"), behind: eff("behind"), moving: eff("moving"),
-      gap: mean(st.map(function (s) { return s.blob - s.you; })) };
+    if (g.stage === 3) return "I knew it. That's my " + names[k] + " again.";
+    return "";
   }
-  function realEffects() {
-    var all = [];
-    DAYS.forEach(function (d) { usable(d).forEach(function (u) { all.push(u.a); }); });
-    function diff(yes, no) {
-      var a = all.filter(yes).map(function (x) { return x.pressure; }), b = all.filter(no).map(function (x) { return x.pressure; });
-      return a.length && b.length ? mean(a) - mean(b) : 0;
-    }
-    return { n: all.length,
-      due: diff(function (x) { return x.due === true; }, function (x) { return x.due === false; }),
-      behind: diff(function (x) { return x.onTop === false; }, function (x) { return x.onTop === true; }),
-      moving: diff(function (x) { return x.moving; }, function (x) { return !x.moving; }) };
-  }
-
-  // ---------- views ----------
-  function viewWelcome() {
-    return '<div class="wrap"><div class="two">' +
-      '<div><h1>This blob shares your heartbeat. It doesn\'t know what it feels.</h1>' +
-      '<p style="font-size:19px">Whenever your heart races, the blob\'s does too. It can\'t tell worry from a long shift. You can. Help it understand, and over time it will learn how your body and your headspace connect, and find small ways to look after you both.</p>' +
-      '<div class="btns" style="margin:24px 0 20px"><button class="btn primary" data-act="setup" data-v="0" data-fid="w1" data-tour="w-start">Meet the blob</button>' +
-      '<a class="btn ghost" href="#headspace">See its two weeks with Neel</a></div>' +
-      '<p class="small">' + (DATA.synthetic ? "Shown with a made-up fortnight modelled on a Fitbit Air, and example answers." : "Shown with Neel\'s real Fitbit Air heart rate and steps from 19 October to 1 November, and example answers.") + "</p></div>" +
-      '<div class="panel" style="min-height:440px" data-tour="w-blob"><div>' + blob(1, 3.6, "The blob, round and waiting") + "<p>No face. It's waiting for you to help it feel.</p></div></div>" +
-      "</div></div>";
-  }
-
-  function progress(step) {
-    var p = step === 2 ? (2 + S.story / 8) / 4 : (step + 1) / 4;
-    if (step === 3) p = 1;
-    return '<div class="progress" role="progressbar" aria-label="Setup progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.round(p * 100) + '"><span style="width:' + (p * 100) + '%"></span></div>';
-  }
-  function factorRow(icon, title, sub) {
-    return '<div class="factor">' + BADGE[icon] + "<div><b>" + title + "</b>" + (sub ? '<span class="small">' + sub + "</span>" : "") + "</div></div>";
-  }
-
-  function viewSetup() {
-    var step = S.step;
-    if (step === 3) return '<div class="wrap">' + progress(3) + "</div>" + viewBlob(true);
-    var h = '<div class="wrap">' + progress(step);
-    if (step === 0) {
-      h += '<div class="two"><div class="panel"><div>' + blob(1, 3, "The blob") + "<p>No face. No feelings. Yet.</p></div></div>" +
-        '<div><h1>Meet the blob.</h1><p style="font-size:18px">The blob doesn\'t know how to feel. It\'s a blob.</p><h2>Will you help it?</h2>' +
-        '<div class="card" style="margin:20px 0"><h3>Before your Fitbit has anything to show, practise with a few stories from a blob\'s life.</h3>' +
-        factorRow("due", "Sometimes something is due", "An assessment, an exam, a deadline") +
-        factorRow("behind", "Sometimes it's on top of things, sometimes it's behind", "Whether it has time and help") +
-        factorRow("moving", "Sometimes it sits still, sometimes it's on its feet", "Later, your Fitbit tells it which") +
-        '</div><div class="btns"><button class="btn primary" data-act="setup" data-v="1" data-fid="s0">Help the blob</button><span class="small">8 practice stories · about 3 minutes</span></div></div></div>';
-    } else if (step === 1) {
-      h += '<div class="head" style="max-width:720px"><h1>When the blob feels pressure, it flattens.</h1>' +
-        "<p>It has no face to look worried with. The more pressure it feels, the flatter it gets. This is how you'll show the blob what it's feeling.</p></div>" +
-        '<div class="card" style="max-width:860px" data-tour="s-scale">' + scale("try", S.tryLevel, 1.6, "Try the flattening scale") + "</div>" +
-        '<div class="btns" style="margin-top:24px"><button class="btn ghost" data-act="setup" data-v="0">Back</button>' +
-        '<button class="btn primary" data-act="setup" data-v="2" data-fid="s1">Read the first story</button></div>';
-    } else {
-      var i = S.story, s = story(i), last = i === 7;
-      h += '<div class="two" style="align-items:start"><div>' +
-        '<p class="small">Practice story ' + (i + 1) + " of 8</p>" + scene(s.moving, s.blob) +
-        '<div class="story-card" data-tour="s-story">' +
-        factorRow("due", s.due ? "The blob has an assessment due tomorrow." : "The blob has nothing due this week.") +
-        factorRow("moving", s.moving ? "It has been on its feet for hours." : "It has been sitting at a desk for hours.") +
-        factorRow("behind", s.behind ? "It's behind, and no one can help." : "It's on top of things.") +
-        "</div></div><div>" +
-        '<div class="card" data-tour="s-rate"><h2>How much pressure does the blob feel?</h2>' + scale("sb:" + i, s.blob, 1, "How much pressure does the blob feel?") +
-        '<h3 style="margin-top:28px">And how much would you feel, in its place?</h3>' + scale("sy:" + i, s.you, 0.8, "And how much would you feel, in its place?") + "</div>" +
-        '<div class="btns" style="margin-top:20px"><button class="btn ghost" data-act="story" data-v="-1">Back</button>' +
-        '<button class="btn primary" data-act="story" data-v="1" data-fid="sn">' + (last ? "See what the blob learned" : "Next story") + "</button></div>" +
-        "</div></div>";
-    }
+  var CARE_ASK = { Pressure: "I think I need to breathe.", Overload: "Can we slow down first?", Effort: "I just need to rest.", Neither: "I'm fine, actually. Not every rise is stress." };
+  function viewAfter(o) {
+    var m = byId[o.id], a = ans(m), k = kind(!!MOVING[a.activity], a.flat);
+    var showBlob = o.reflect ? blob(a.flat >= 4 ? 3 : 1, { f: 1.6, state: "work", box: 170, boxH: 150 }) : blob(a.flat, { f: 1.6, box: 170, boxH: 150 });
+    var h = '<div class="backdrop"></div><div class="sheet" role="dialog" aria-label="The blob"><div class="grab"></div><div style="display:flex;justify-content:center">' + showBlob + "</div>";
+    if (o.reflect) h += '<p class="vig" style="font-weight:500">' + esc(o.reflect) + "</p>";
+    h += '<h2 style="margin-top:14px">' + CARE_ASK[k] + "</h2><div style=\"height:16px\"></div>";
+    if (k === "Neither") h += '<button class="btn" data-act="afternext">' + (o.last ? "Back to its day" : "Next story") + "</button>";
+    else h += '<button class="btn" data-go="#care/' + m.id + '">' + (k === "Effort" ? "Okay, let's rest" : k === "Overload" ? "Let's slow down" : "Breathe with me") + '</button><button class="textbtn" data-act="afternext">Not now</button>';
     return h + "</div>";
   }
 
-  function verdict(w) { return w >= 5 ? "A heavy day for the blob" : w >= 3 ? "A mixed day for the blob" : "A light day for the blob"; }
-  function kindChips(d) {
-    var c = { Overload: 0, Effort: 0, Pressure: 0, Neither: 0 };
-    usable(d).forEach(function (u) { c[kind(u.a.moving, u.a.pressure)]++; });
-    var out = Object.keys(c).filter(function (k) { return c[k]; }).map(function (k) {
-      return '<span class="chip"><i class="sw" style="background:' + KIND_COLOR[k] + '"></i>' + c[k] + " " + k + "</span>";
-    });
-    return out.length ? '<div class="chips" style="margin-bottom:16px">' + out.join("") + "</div>" : "";
+  // ---------- care ----------
+  var careRun = null;
+  function viewCare(id) {
+    var m = byId[id], k = m ? kind(!!MOVING[ans(m).activity], ans(m).flat) : "Pressure", lv = m ? ans(m).flat : 4;
+    var title = k === "Effort" ? "Rest with me" : "Breathe with me";
+    var sub = k === "Effort" ? "Have some water, stretch, or sit for a minute. No need to soothe anything." : k === "Overload" ? "Let's just pause for a moment first." : "In for 4, out for 6. Follow my shape.";
+    return '<div class="screen"><div class="care"><div class="dhead"><button class="back" data-act="careexit" aria-label="Not now">' + ICON.back + "</button><span></span><span></span></div>" +
+      '<div class="ob-blob" id="careblob">' + blob(lv, { f: 2.4, state: k === "Effort" ? "wait" : "breathe", pal: "sage", box: 300 }) + "</div>" +
+      "<h1>" + title + '</h1><p class="small" style="margin-top:8px">' + sub + '</p><p class="cue" id="cue" aria-live="polite" style="margin-top:20px"></p>' +
+      '<p class="bpm" id="bpm"></p><button class="btn" data-act="caredone" id="caredone">I\'m done</button><button class="textbtn" data-act="careexit">Not now</button></div></div>';
   }
-
-  function viewToday() {
-    var d = dayBy(S.day), w = whole(d), ms = moments(d), n = ms.length;
-    var asked = ms.filter(function (m) { return m.rise; }).length;
-    var sug = suggestions().filter(function (l) { return S.sugg[l.id] !== "no"; })[0];
-    var h = '<div class="wrap"><div class="head"><h1>' + longDate(d.date) + '</h1><p>The blob\'s calendar: ' + esc(d.context) + "</p></div>" +
-      '<div class="grid"><div class="col">' +
-      '<section class="card" data-tour="t-chart"><h2>' + verdict(w) + "</h2>" + kindChips(d) +
-      hrChart(d, 0, 1440, { label: "The blob's heart rate across " + longDate(d.date) + ", with steps and " + n + " moments to talk through" }) + legend(d) + "</section></div>" +
-      '<div class="col"><section class="card" data-tour="t-stats"><div class="stats">' +
-      '<div class="stat"><b>' + Math.round(d.rhr) + "</b><span>Its resting heartbeat (bpm)</span></div>" +
-      '<div class="stat"><b>' + d.steps.toLocaleString("en-AU") + "</b><span>Steps</span></div>" +
-      '<div class="stat"><b>' + d.nRises + "</b><span>Times its heart raced</span></div>" +
-      '<div class="stat"><b>' + w + "/7</b><span>How flat the day left it</span></div></div></section>";
-    if (sug) {
-      h += '<section class="card yellow"><h3>The blob has an idea</h3><p style="font-size:18px;font-weight:500">' + esc(sug.title) + "</p>" +
-        "<details><summary>Why the blob thinks this</summary><p>" + esc(sug.text) + "</p></details></section>";
+  function startCare(id) {
+    stopCare();
+    var m = byId[id], k = m ? kind(!!MOVING[ans(m).activity], ans(m).flat) : "Pressure", rest = m ? m.day.rhr : todayDay().rhr;
+    var start = m ? m.bpm - 6 : rest + 22, t0 = Date.now(), total = k === "Effort" ? 30000 : 60000, pause = k === "Overload" ? 5000 : 0;
+    var cue = document.getElementById("cue"), bpm = document.getElementById("bpm");
+    careRun = { id: id, k: k, start: start, rest: rest, t0: t0, total: total + pause, timer: setInterval(tick, 250), settled: false };
+    function tick() {
+      var t = Date.now() - t0, frac = Math.min(1, Math.max(0, t - pause) / total);
+      var now = Math.round(rest + 4 + (start - rest - 4) * Math.exp(-3 * frac));
+      careRun.bpmNow = now;
+      if (bpm) bpm.innerHTML = "My heart <b>" + now + "</b> bpm · resting " + Math.round(rest);
+      if (cue) {
+        if (k === "Effort") cue.textContent = "Resting…";
+        else if (t < pause) cue.textContent = "Pause…";
+        else cue.textContent = ((t - pause) % 10000) < 4000 ? "Breathe in" : "Breathe out";
+      }
+      if (t >= careRun.total) finishCare(true);
     }
-    h += '<section class="card dark" data-tour="t-mark"><h3>Something just happened?</h3><p>Tap once. The blob will ask you about it tonight.</p>' +
-      '<button class="btn light" data-act="mark">Mark this moment</button></section>' +
-      '<section class="card"><h3>Tonight with the blob</h3><p>' + n + " moment" + (n === 1 ? "" : "s") + " to talk through · about 2 minutes</p>" +
-      (d.nRises > asked && asked ? '<p class="small">The blob will ask you about the biggest ' + asked + " tonight.</p>" : "") +
-      '<a class="btn primary" href="#review">Talk them through</a></section>' +
-      "</div></div></div>";
-    return h;
-  }
-
-  function dayMap(d) {
-    var S0 = 300, P = 30, Z = S0 - P * 2;
-    var xs = function (v) { return P + v * Z; }, ys = function (v) { return P + (1 - v) * Z; };
-    var sx = function (steps) { return Math.sqrt(Math.min(1, steps / 1200)); };
-    var mx = sx(60), my = 0.5;
-    var g = '<rect x="' + P + '" y="' + P + '" width="' + (mx * Z) + '" height="' + (my * Z) + '" fill="var(--plum-soft)"/>' +
-      '<rect x="' + xs(mx) + '" y="' + P + '" width="' + ((1 - mx) * Z) + '" height="' + (my * Z) + '" fill="var(--pink-soft)"/>' +
-      '<rect x="' + xs(mx) + '" y="' + ys(my) + '" width="' + ((1 - mx) * Z) + '" height="' + (my * Z) + '" fill="var(--orange-soft)"/>' +
-      '<rect x="' + P + '" y="' + ys(my) + '" width="' + (mx * Z) + '" height="' + (my * Z) + '" fill="var(--bg)"/>' +
-      '<text x="' + (P + 6) + '" y="' + (P + 16) + '" style="fill:var(--ink);font-weight:700">Pressure</text>' +
-      '<text x="' + (S0 - P - 6) + '" y="' + (P + 16) + '" text-anchor="end" style="fill:var(--ink);font-weight:700">Overload</text>' +
-      '<text x="' + (S0 - P - 6) + '" y="' + (S0 - P - 8) + '" text-anchor="end" style="fill:var(--ink);font-weight:700">Effort</text>' +
-      '<text x="' + (P + 6) + '" y="' + (S0 - P - 8) + '" style="fill:var(--ink);font-weight:700">Neither</text>' +
-      '<text x="' + (S0 / 2) + '" y="' + (S0 - 8) + '" text-anchor="middle">How much it was moving →</text>' +
-      '<text x="12" y="' + (S0 / 2) + '" text-anchor="middle" transform="rotate(-90 12 ' + (S0 / 2) + ')">How much pressure it felt →</text>';
-    usable(d).forEach(function (u) {
-      // the final label decides the side; steps place it within that side
-      var v = sx(u.m.steps10);
-      if (u.a.moving && v <= mx) v = mx + 0.06;
-      if (!u.a.moving && v > mx) v = mx - 0.06;
-      var cx = xs(Math.max(0.03, Math.min(0.97, v))), cy = ys((u.a.pressure - 1) / 6);
-      g += '<circle cx="' + cx + '" cy="' + cy + '" r="7" fill="' + ACT_COLOR[u.a.activity] + '" stroke="var(--card)" stroke-width="2.5"/>' +
-        '<text x="' + cx + '" y="' + (cy - 11) + '" text-anchor="middle" style="fill:var(--ink)">' + fmtTime(u.m.peakMin) + "</text>";
-    });
-    return '<svg class="chart" viewBox="0 0 ' + S0 + " " + S0 + '" role="img" aria-label="Day map of ' + shortDate(d.date) + ': each moment placed by how much the blob was moving and how much pressure it felt">' + g + "</svg>" +
-      '<div class="legend">' + ACTS.map(function (a) { return '<span><i class="sw" style="background:' + ACT_COLOR[a] + '"></i>' + a + "</span>"; }).join("") + "</div>";
-  }
-
-  function viewReview() {
-    var d = dayBy(S.day), ms = moments(d), n = ms.length;
-    var h = '<div class="wrap"><div class="head"><h1>Tonight with the blob</h1><p>' + longDate(d.date) + " · " + n + " moment" + (n === 1 ? "" : "s") + " to talk through</p>" +
-      (n ? '<p class="small">Written from what the Fitbit saw. If the blob got it wrong, tell it what it was really doing.</p>' : "") + "</div>";
-    var w = whole(d), right = "";
-    right += '<section class="card yellow"><h3>And how did the whole day leave the blob?</h3>' + scale("whole:" + d.date, w, 0.75, "And how did the whole day leave the blob?") + "</section>";
-    var mt = match(d), mLab = { 1: "Not at all", 5: "Exactly" };
-    right += '<section class="card" data-tour="r-map"><h3>The blob\'s ' + shortDate(d.date) + "</h3>" + (n ? dayMap(d) : "") +
-      '<div class="cmp"><div>' + blob(w, 1, "How it went " + w + " of 7") + "<br>How it went " + w + "/7</div></div>" +
-      '<p style="margin-top:20px;font-weight:700">Next morning: does this feel right to you?</p>' +
-      '<div class="pills" role="radiogroup" aria-label="Next morning: does this feel right to you?">' +
-      [1, 2, 3, 4, 5].map(function (k) {
-        return '<button type="button" class="pill" role="radio" aria-checked="' + (mt === k) + '" data-act="set" data-key="match:' + d.date + '" data-v="' + k + '" data-fid="match:' + k + '">' + k + (mLab[k] ? " · " + mLab[k] : "") + "</button>";
-      }).join("") + "</div></section>";
-
-    if (!n) {
-      return h + '<div class="grid"><div class="col"><section class="card" style="text-align:center;padding:48px 28px">' +
-        '<div style="display:flex;justify-content:center;margin-bottom:20px">' + blob(1, 2.2, "The blob, round and calm") + "</div>" +
-        "<h2>A calm day for the blob</h2><p>Its heart stayed close to resting all day. Nothing to talk through tonight.</p></section></div>" +
-        '<div class="col">' + right + "</div></div></div>";
+    if (k !== "Effort" && pause) {
+      // the pacer starts after the pause
+      var cb = document.querySelector("#careblob .bstage");
+      if (cb) { cb.classList.remove("st-breathe"); cb.classList.add("st-wait"); setTimeout(function () { if (cb) { cb.classList.remove("st-wait"); cb.classList.add("st-breathe"); } }, pause); }
     }
-    var i = Math.min(S.mi, n - 1), m = ms[i], a = ans(d, m), k = aKey(d, m);
-    var left = '<section class="card" data-tour="r-moment"><h2>' + fmtTime(m.peakMin) + " · " + esc(a.activity) + "</h2>" +
-      (m.marked ? '<div class="chips" style="margin-bottom:12px"><span class="chip yellow">You marked this</span></div>' : "") +
-      scene(a.moving, a.cantRemember ? 1 : a.pressure, a.activity) +
-      '<p style="margin-top:18px;font-size:17px">' + esc(activityStory(d, m, a.activity)) + "</p>" +
-      '<div class="inner" style="padding:12px">' + hrChart(d, Math.max(0, m.peakMin - 90), Math.min(1440, m.peakMin + 90), {
-        w: 640, h: 220, sel: i, label: "Heart rate 90 minutes either side of " + fmtTime(m.peakMin),
-        ticks: [-90, -45, 0, 45, 90].map(function (o) { return m.peakMin + o; }).filter(function (x) { return x >= 0 && x <= 1440; })
-      }) + "</div></section>";
-    left += '<section class="card' + (a.cantRemember ? " dim" : "") + '" data-tour="r-help"><h2>Help the blob understand</h2><div class="qbody">' +
-      '<p style="margin:0 0 8px;font-weight:700;color:var(--ink)">What was the blob doing?</p>' +
-      '<div class="pills" role="radiogroup" aria-label="What was the blob doing?">' + ACTS.map(function (id) {
-        return '<button type="button" class="pill" role="radio" aria-checked="' + (a.activity === id) + '" data-act="act" data-key="' + k + '" data-v="' + id + '" data-fid="act' + id + '">' +
-          id + (id === a.fitbitGuess ? ' <span class="muted">· Fitbit\'s guess</span>' : "") + "</button>";
-      }).join("") + "</div>" +
-      '<div class="qrow" style="margin-top:12px"><b>Did the blob have something due?</b>' + yesNo("mdue:" + k, a.due, "Did the blob have something due?") + "</div>" +
-      '<div class="qrow"><b>Was it on top of things?</b>' + yesNo("mtop:" + k, a.onTop, "Was it on top of things?") + "</div>" +
-      '<p style="margin:16px 0 8px;font-weight:700;color:var(--ink)">How much pressure was it feeling?</p>' +
-      scale("mp:" + k, a.cantRemember ? null : a.pressure, 0.9, "How much pressure was it feeling?") + "</div>" +
-      '<div class="btns" style="margin-top:20px"><button class="btn ghost" aria-pressed="' + a.cantRemember + '" data-act="cant" data-key="' + k + '" data-fid="cant">' +
-      (a.cantRemember ? "You can't remember this one" : "I can't remember") + "</button>" +
-      '<button class="btn primary" data-act="next" data-fid="next">' + (i === n - 1 ? "Back to the first" : "Next moment") + "</button></div></section>";
-
-    var list = '<section class="card"><h3>Today\'s moments</h3><ul class="list">' + ms.map(function (mm, j) {
-      var aa = ans(d, mm), status = aa.cantRemember ? "Can't remember" : aa.pressure != null ? aa.pressure + " of 7" : "Not yet";
-      return '<li><button class="row-btn" data-act="mi" data-v="' + j + '" aria-current="' + (j === i) + '" data-fid="mi' + j + '">' +
-        '<i class="sw" style="background:' + ACT_COLOR[aa.activity] + '"></i>' +
-        '<div class="grow"><b>' + fmtTime(mm.peakMin) + (mm.marked ? " · You marked this" : "") + "</b><span>" + esc(aa.activity) + " · " + mm.bpm + " bpm</span></div>" +
-        '<span class="small">' + status + "</span></button></li>";
-    }).join("") + "</ul></section>";
-
-    return h + '<div class="grid"><div class="col">' + left + '</div><div class="col">' + list + right + "</div></div></div>";
+    tick();
+  }
+  function stopCare() { if (careRun) clearInterval(careRun.timer); }
+  function finishCare(auto) {
+    if (!careRun) return;
+    stopCare();
+    var r = careRun, settled = r.bpmNow - r.rest <= 10;
+    careRun = null;
+    var m = byId[r.id];
+    if (m) { S.care[r.id] = { kind: r.k, type: r.k === "Effort" ? "rest" : "breathe", from: r.start, to: r.bpmNow, settled: settled }; save(); }
+    var lv = m ? ans(m).flat : 4;
+    var host = document.getElementById("careblob");
+    if (host) host.innerHTML = settled ? blob(1, { f: 2.4, state: "puff", box: 300 }) : blob(lv, { f: 2.4, state: lv >= 4 ? "flat" : "wait", pal: "sage", box: 300 });
+    var cue = document.getElementById("cue"), btn = document.getElementById("caredone");
+    if (cue) cue.textContent = settled ? "I feel rounder already." : "That's okay, I'm still a bit flat.";
+    if (btn) { btn.textContent = m ? (nextStory(m.day) ? "Next story" : "Back to its day") : "Done"; btn.setAttribute("data-act", "careexit"); }
+    var nn = document.querySelector(".care .textbtn"); if (nn) nn.hidden = true;
   }
 
-  function viewHeadspace() {
-    var ls = links(), sug = ls.filter(function (l) { return l.ok; });
+  // ---------- stories tab ----------
+  function statusOf(m) {
+    var a = ans(m);
+    if (!a) return '<span class="status wait">Waiting</span>';
+    if (a.cantRemember) return '<span class="status">Can\'t remember</span>';
+    return '<span class="status">' + a.flat + " of 7</span>";
+  }
+  function row(m) {
+    var a = ans(m);
+    return '<li><button class="row" data-go="#story/' + m.id + '"><span class="mini">' + (a && a.flat ? mini(a.flat) : mini(1)) + '</span><span class="grow"><b>' + ampm(m.peakMin) + "</b><span>" + esc(activityOf(m)) + " · +" + m.lift + " bpm</span></span>" + statusOf(m) + "</button></li>";
+  }
+  function viewStories() {
+    var h = '<div class="screen with-tabs"><p class="date">Its stories</p><h1 class="title">Stories</h1>';
+    DAYS.slice().reverse().forEach(function (d) {
+      var list = storiesOf(d).sort(function (a, b) { return a.peakMin - b.peakMin; });
+      if (!list.length) return;
+      h += '<div class="group"><h2>' + (d.date === TODAY ? "Tonight" : shortDate(d.date)) + '</h2><ul class="rows">' + list.map(row).join("") + "</ul></div>";
+    });
+    return h + "</div>" + tabbar("stories");
+  }
+
+  // ---------- learned tab ----------
+  function links() {
+    var still = [], moving = [];
+    ALL.forEach(function (m) { if (answered(m)) (isMoving(m) ? moving : still).push(ans(m).flat); });
+    var whole = function (d) {
+      var f = d.moments.filter(answered).map(function (m) { return ans(m).flat; });
+      return d.whole != null ? d.whole : f.length ? Math.round(mean(f)) : null;
+    };
+    var hi = [], lo = [];
+    DAYS.forEach(function (d) { var w = whole(d); if (w == null) return; (d.steps >= 10000 ? hi : lo).push(w); });
+    var aH = [], aL = [];
+    for (var i = 0; i < DAYS.length - 1; i++) { var w = whole(DAYS[i]); if (w == null) continue; if (w >= 4) aH.push(DAYS[i + 1].rhr); else if (w <= 2) aL.push(DAYS[i + 1].rhr); }
     var nDays = DAYS.filter(function (d) { return whole(d) != null; }).length;
-    var h = '<div class="wrap"><div class="head"><h1>' + (sug.length ? "The blob feels pressure when it sits still." : "The blob is still getting to know you.") + "</h1>" +
-      "<p>What the blob has learned from " + nDays + " days of your heartbeat, your steps and your help.</p></div>" +
-      '<div class="grid"><div class="col">';
-    h += '<section class="card" data-tour="h-sugg"><h2>Things the blob wants to try with you</h2>';
-    if (sug.length) {
-      sug.forEach(function (l) {
-        var v = S.sugg[l.id];
-        h += '<div class="sugg"><h3>' + esc(l.title) + "</h3><p>" + esc(l.text) + '</p><div class="pills" role="radiogroup" aria-label="' + esc(l.title) + '">' +
-          '<button class="pill" role="radio" aria-checked="' + (v === "try") + '" data-act="sugg" data-key="' + l.id + '" data-v="try" data-fid="' + l.id + 't">Let\'s try it</button>' +
-          '<button class="pill" role="radio" aria-checked="' + (v === "no") + '" data-act="sugg" data-key="' + l.id + '" data-v="no" data-fid="' + l.id + 'n">Not for us</button></div></div>';
-      });
-    } else {
-      h += "<p>The blob hasn't noticed enough yet. Its ideas will show up here.</p>";
-    }
-    h += '<p class="small" style="margin:12px 0 0">These are gentle ideas, not medical advice. The blob gets surer the more days it spends with you.</p></section>';
-    h += '<section class="card" data-tour="h-links"><h2>What the blob has noticed</h2>' + ls.map(function (l) {
-      return '<div class="link-row"' + (l.r != null ? ' aria-label="' + esc(l.name + ". " + l.text + " Correlation of steps and the whole day: " + l.r.toFixed(2)) + '"' : "") + '><div><b>' + l.name + "</b><p>" + esc(l.text) + "</p></div>" +
-        '<span class="chip' + (l.chip === "Starting to see it" ? " yellow" : "") + '">' + l.chip + "</span></div>";
+    var L = [
+      { id: "still", name: "Sitting still vs moving", diff: mean(still) - mean(moving), thr: 1, n: still.length && moving.length ? nDays : 0,
+        text: "When my heart raced while I sat still, I got to " + f1(mean(still)) + ". While moving, " + f1(mean(moving)) + ".",
+        idea: "Before a long sit at the desk, let's move for 10 minutes first." },
+      { id: "steps", name: "Steps and the whole day", diff: mean(lo) - mean(hi), thr: 0.8, n: hi.length && lo.length ? nDays : 0,
+        text: "On 10,000+ step days I ended up " + f1(mean(hi)) + ". On quieter days, " + f1(mean(lo)) + ".",
+        idea: "Quieter days leave me flatter. Let's get a walk in before the evening." },
+      { id: "rhr", name: "My resting heartbeat the next day", diff: mean(aH) - mean(aL), thr: 1.5, n: aH.length && aL.length ? nDays : 0,
+        text: "After heavy days my resting heartbeat was " + f1(mean(aH)) + " bpm. After light days, " + f1(mean(aL)) + " bpm.",
+        idea: "After a heavy day, let's start the next one gently." }
+    ];
+    L.forEach(function (l) { l.chip = l.n < 6 ? "Needs more days" : Math.abs(l.diff) < l.thr ? "Not sure yet" : "Starting to see it"; });
+    return L;
+  }
+  function viewLearned() {
+    var h = '<div class="screen with-tabs"><p class="date">What it has learned about itself</p><h1 class="title">Learned</h1>';
+    var groups = ACTS.map(function (a) {
+      var f = ALL.filter(function (m) { return answered(m) && activityOf(m) === a; }).map(function (m) { return ans(m).flat; });
+      return { a: a, n: f.length, avg: mean(f) };
+    }).filter(function (g) { return g.n >= 2; });
+    h += '<section class="card"><h2 class="section">What I know about myself</h2>' + (groups.length ? groups.map(function (g) {
+      return '<div class="know"><span class="mini">' + mini(Math.round(g.avg)) + "</span><p><b>" + g.a + "</b><br><span class=\"smoke\">I usually get to about a " + Math.round(g.avg) + " · " + g.n + " moments</span></p></div>";
+    }).join("") : '<p class="small" style="margin-top:8px">Help me with a few stories and I\'ll start to know.</p>') + "</section>";
+    h += '<section class="card"><h2 class="section">Patterns I\'m noticing</h2>' + links().map(function (l) {
+      var on = l.chip === "Starting to see it" && l.diff > 0, v = S.sugg[l.id];
+      return '<div class="link"><div class="top"><b>' + l.name + '</b><span class="badge' + (l.chip === "Starting to see it" ? " yes" : "") + '">' + l.chip + "</span></div><p>" + esc(l.text) + "</p>" +
+        (on ? '<p style="color:var(--ink);font-weight:500;margin-top:10px">' + esc(l.idea) + '</p><div class="toggles" style="margin-top:10px" role="radiogroup" aria-label="' + esc(l.idea) + '">' +
+          '<button class="opt" role="radio" aria-checked="' + (v === "try") + '" data-act="sugg" data-k="' + l.id + '" data-v="try">Let\'s try it</button>' +
+          '<button class="opt" role="radio" aria-checked="' + (v === "no") + '" data-act="sugg" data-k="' + l.id + '" data-v="no">Not for us</button></div>' : "") + "</div>";
     }).join("") + "</section>";
-    h += "</div>";
-
-    // right column
-    var by = {};
-    ACTS.forEach(function (a) { by[a] = []; });
-    DAYS.forEach(function (d) { usable(d).forEach(function (u) { by[u.a.activity].push(u.a.pressure); }); });
-    h += '<div class="col"><section class="card"><h3>How well the blob knows you</h3><div class="bar-track" role="progressbar" aria-label="Days together" aria-valuemin="0" aria-valuemax="28" aria-valuenow="' + nDays + '"><span style="width:' + (nDays / 28 * 100) + '%"></span></div>' +
-      '<p style="margin:12px 0 0">' + nDays + " of 28 days together. What it has noticed so far are early signs. It will check them again after four weeks.</p></section>";
-    h += '<section class="card"><h3>Where the blob feels pressure</h3><ul class="list">' + ACTS.map(function (a) {
-      var v = by[a], avg = mean(v);
-      return '<li class="act-row">' + ('<span class="act-blob">' + (v.length ? blob(Math.round(avg), 0.45, a + ": " + f1(avg) + " of 7") : '<span class="act-none"></span>') + "</span>") +
-        '<div class="grow"><b><i class="sw" style="background:' + ACT_COLOR[a] + '"></i> ' + a + "</b><span>" +
-        (v.length ? f1(avg) + "/7 · " + v.length + " moment" + (v.length === 1 ? "" : "s") : "No moments yet") + "</span></div></li>";
-    }).join("") + "</ul></section>";
-    h += '<section class="card"><h3>Every day together</h3><ul class="list">' + DAYS.map(function (d) {
-      return '<li><button class="row-btn" data-act="goday" data-v="' + d.date + '" data-fid="gd' + d.date + '">' + blob(whole(d), 0.45) +
-        '<div class="grow"><b>' + shortDate(d.date) + "</b><span>" + esc(d.context) + "</span></div><span>" + whole(d) + "/7</span></button></li>";
-    }).join("") + "</ul></section>";
-    h += '<section class="card yellow"><h3>Has it been heavy for you too?</h3><p style="margin:0">The blob can\'t diagnose anything. Talking to someone helps, and UNSW offers free support for students.</p></section>';
-    return h + "</div></div></div>";
-  }
-
-  // ---------- stories written from the data ----------
-  function stillFor(d, m) {
-    var n = 0;
-    for (var s = m.peakMin / 5 - 1; s >= 0 && n < 36; s--) { if (d.series[s][2] >= 60) break; n++; }
-    return n * 5;
-  }
-  function span(m) {
-    if (m < 60) return m + " minutes";
-    if (m < 90) return "about an hour";
-    return "about " + Math.round(m / 30) / 2 + " hours";
-  }
-  function activityStory(d, m, act) {
-    var t = fmtTime(m.peakMin), lift = Math.round(m.bpm - d.rhr), still = stillFor(d, m);
-    var when = m.peakMin < 720 ? "in the morning" : m.peakMin < 1080 ? "in the afternoon" : "in the evening";
-    var heart = m.marked && !m.rise
-      ? "Its heart was at " + m.bpm + " bpm, " + lift + " above resting."
-      : null;
-    switch (act) {
-      case "Exercising":
-        return t + ". The blob is moving fast: " + m.steps10 + " steps in ten minutes, and its heart is up at " + m.bpm + " bpm. It looks like exercise, a game or a run. " +
-          (heart ? "You marked this moment." : "Its heart is pounding, but the blob can't tell if that's the running or something else.");
-      case "On its feet, working":
-        return t + ". The blob is on its feet, " + m.steps10 + " steps in ten minutes, back and forth. " +
-          (heart || "Its heart sits at " + m.bpm + " bpm for " + span(m.mins) + ".") + " It might be a busy shift. The blob is tired, but is it under pressure?";
-      case "Walking somewhere":
-        return t + ". The blob is walking somewhere " + when + ", " + m.steps10 + " steps in ten minutes. " +
-          (heart || "Its heart climbs to " + m.bpm + " bpm.") + " Is it heading to something, or away from something? The blob doesn't know.";
-      case "Sitting, working":
-        return t + ". The blob has barely moved for " + span(Math.max(still, 10)) + ". It's probably working at a desk. " +
-          (heart ? heart + " You marked this moment." : "Then, without a single step, its heart races to " + m.bpm + " bpm, " + lift + " above resting. Nothing in its body explains it.");
-      default:
-        return t + ". The blob is sitting still " + when + ", only " + m.steps10 + " steps in ten minutes. Maybe it's resting, maybe it's with people. " +
-          (heart ? heart + " You marked this moment." : "But its heart races to " + m.bpm + " bpm and stays up for " + span(m.mins) + ". Something has its attention.");
-    }
-  }
-
-  function viewBlob(fromSetup) {
-    var e = effects(), re = realEffects(), enough = re.n >= 8;
-    function row(label, v, color) {
-      var pct = Math.min(1, Math.abs(v) / 4) * 50;
-      var style = v >= 0 ? "left:50%;width:" + pct + "%" : "right:50%;width:" + pct + "%";
-      return '<div class="effect"><b>' + label + '</b><div class="axis" aria-hidden="true"><i style="' + style + ";background:" + color + '"></i></div><span style="text-align:right;font-weight:700">' + signed(v) + "</span></div>";
-    }
-    function rows(x) {
-      return row("Something due", x.due, "var(--plum)") + row("Being behind", x.behind, "var(--plum)") + row("Being on its feet", x.moving, "var(--orange)");
-    }
-    var agree = "";
-    if (enough) {
-      var names = { due: "something being due", behind: "being behind", moving: "being on its feet" }, big = null, bigD = 0;
-      ["due", "behind", "moving"].forEach(function (f) { var dd = Math.abs(e[f] - re[f]); if (dd > bigD) { bigD = dd; big = f; } });
-      agree = bigD < 1
-        ? "Your practice answers and your real days agree."
-        : "Your practice answers and your real days disagree on " + names[big] + ": " + signed(e[big]) + " in practice, " + signed(re[big]) + " in your real moments.";
-    }
-    var gap = e.gap, x = f1(Math.abs(gap));
-    var h = '<div class="wrap"' + (fromSetup ? ' style="padding-top:0"' : "") + '><div class="head"><h1>The blob is starting to understand.</h1>' +
-      "<p>From your practice stories and your real moments, this is what the blob now knows flattens it.</p></div>" +
-      '<div class="grid"><div class="col"><section class="card" data-tour="b-effects"><h2>What flattens the blob</h2><p class="small">How much flatter it gets, on the 1–7 scale</p>' +
-      '<div class="two-eff"><div role="img" aria-label="In practice: something due ' + signed(e.due) + ", being behind " + signed(e.behind) + ", being on its feet " + signed(e.moving) + '">' +
-      "<h3>In practice</h3>" + rows(e) + "</div>" +
-      '<div' + (enough ? ' role="img" aria-label="In your real moments: something due ' + signed(re.due) + ", being behind " + signed(re.behind) + ", being on its feet " + signed(re.moving) + '"' : "") + ">" +
-      "<h3>In your real moments</h3>" + (enough ? rows(re) : "<p>The blob needs a few more nights with you.</p>") + "</div></div>" +
-      (agree ? '<p style="margin:16px 0 0;font-weight:500;color:var(--ink)">' + agree + "</p>" : "") + "</section>" +
-      '<div class="btns">' +
-      '<button class="btn ghost" data-act="retell" data-fid="retell">' + (fromSetup ? "Change my answers" : "Tell the stories again") + "</button>" +
-      (S.done ? '<a class="btn primary" href="#today">Spend a day with the blob</a>' : "") + "</div></div>" +
-      '<div class="col"><section class="card yellow"><h3>What this means</h3><p style="margin:0">' +
-      ((enough ? re.moving : e.moving) < 0.75
-        ? "Being on its feet barely flattens the blob. So when its heart races during a busy shift, it now knows that's effort, not pressure."
-        : "Being on its feet flattens the blob too, so it may still mix up tiredness and pressure. It will keep watching.") + "</p></section>" +
-      '<section class="card indigo" data-tour="b-gap"><h3>You and the blob</h3><p style="margin:0">In its place, you felt ' + x + " " + (gap >= 0 ? "less" : "more") + " than the blob on average. " +
-      (Math.abs(gap) >= 0.6 ? "That's a big gap. You might be going easier on yourself than on the blob." : "That's close, so the blob feels much like you would.") + "</p></section></div></div></div>";
-    return h;
-  }
-
-  // ---------- walkthrough ----------
-  var TOUR = [
-    { r: "welcome", t: "w-blob", h: "Meet the blob", b: "It's a blob. It doesn't understand how it feels. Can you help it understand how it feels?" },
-    { r: "welcome", t: "w-start", h: "Start here", b: "Meet the blob starts with 8 practice stories, before your Fitbit has anything to show. It takes about 3 minutes." },
-    { r: "setup", step: 1, t: "s-scale", h: "The flattening scale", b: "The blob shows pressure by flattening. Every answer in the app uses this 1 to 7 scale." },
-    { r: "setup", step: 2, t: "s-story", h: "A practice story", b: "Each story changes three things: whether something is due, whether it's behind, and whether it's on its feet." },
-    { r: "setup", step: 2, t: "s-rate", h: "Two answers per story", b: "You rate how flat the blob would feel, then how flat you would feel in its place." },
-    { r: "today", t: "t-chart", h: "The blob's day", b: "Heart rate across the whole day. Dots mark the moments the blob will ask about, coloured by what it was probably doing. Bars along the bottom are steps." },
-    { r: "today", t: "t-stats", h: "The day in numbers", b: "Resting heartbeat, steps, how many times its heart raced, and how flat the day left it." },
-    { r: "today", t: "t-mark", h: "Mark a moment", b: "If something happens during the day, one tap tells the blob to ask about it tonight." },
-    { r: "review", t: "r-moment", h: "Tonight with the blob", b: "Each moment, written as a short story from what the Fitbit saw, with a close-up of the heart rate." },
-    { r: "review", t: "r-help", h: "Help the blob understand", b: "Check what it was doing (Fitbit's guess is already picked), answer two quick questions and use the scale. If you can't remember, the blob leaves that moment out." },
-    { r: "review", t: "r-map", h: "The day map", b: "Every moment placed by how much the blob was moving and how much pressure it felt: Pressure, Overload, Effort or Neither." },
-    { r: "headspace", t: "h-sugg", h: "What it learned", b: "Once the blob sees a pattern across enough days, it suggests a small way to look after you both." },
-    { r: "headspace", t: "h-links", h: "What it has noticed", b: "Three links between your body and your headspace. Each one shows how sure the blob is so far." },
-    { r: "blob", t: "b-effects", h: "About the blob", b: "How much each thing flattens the blob, in your practice stories and in your real moments, side by side. This is where the stories meet the data." },
-    { r: "blob", t: "b-gap", h: "You and the blob", b: "How differently you'd feel in its place. A big gap might mean you go easier on yourself than on the blob." },
-    { r: null, t: "tour", h: "That's the tour", b: "You can come back to it any time from here." }
-  ];
-  var T = null;
-  function tourStart() {
-    T = { i: 0, hash: location.hash || "#welcome", step: S.step, story: S.story, day: S.day, mi: S.mi };
-    var d = dayBy(S.day);
-    if (!moments(d).length) {
-      for (var j = DAYS.length - 1; j >= 0; j--) if (moments(DAYS[j]).length) { S.day = DAYS[j].date; S.mi = 0; break; }
-    }
-    document.getElementById("tour").hidden = false;
-    tourGo(0);
-  }
-  function tourEnd() {
-    if (!T) return;
-    S.step = T.step; S.story = T.story; S.day = T.day; S.mi = T.mi;
-    var back = T.hash;
-    T = null;
-    document.getElementById("tour").hidden = true;
-    document.getElementById("tour-spot").hidden = true;
-    if (location.hash !== back) location.hash = back; else { lastRoute = null; render(); }
-    document.getElementById("tour-btn").focus();
-  }
-  function tourGo(i) {
-    T.i = i;
-    var st = TOUR[i];
-    if (st.step != null) { S.step = st.step; if (st.step === 2) S.story = 0; }
-    if (st.r && location.hash !== "#" + st.r) location.hash = "#" + st.r;
-    else { lastRoute = null; render(); }
-  }
-  function tourPlace() {
-    if (!T) return;
-    var st = TOUR[T.i], box = document.getElementById("tour"), spot = document.getElementById("tour-spot");
-    box.querySelector(".tour-n").textContent = "Step " + (T.i + 1) + " of " + TOUR.length;
-    box.querySelector("h3").textContent = st.h;
-    box.querySelector("p:not(.tour-n)").textContent = st.b;
-    box.querySelector('[data-tour-act="back"]').disabled = T.i === 0;
-    box.querySelector('[data-tour-act="next"]').textContent = T.i === TOUR.length - 1 ? "Done" : "Next";
-    var el = st.t === "tour" ? document.getElementById("tour-btn") : document.querySelector('[data-tour="' + st.t + '"]');
-    if (el) {
-      el.scrollIntoView({ block: "center", behavior: "instant" in document.documentElement.style ? "instant" : "auto" });
-      tourSpot();
-    } else spot.hidden = true;
-    box.querySelector('[data-tour-act="next"]').focus({ preventScroll: true });
-  }
-  function tourSpot() {
-    if (!T) return;
-    var st = TOUR[T.i], spot = document.getElementById("tour-spot");
-    var el = st.t === "tour" ? document.getElementById("tour-btn") : document.querySelector('[data-tour="' + st.t + '"]');
-    if (!el) { spot.hidden = true; return; }
-    var r = el.getBoundingClientRect(), pad = 6;
-    spot.hidden = false;
-    spot.style.top = (r.top - pad) + "px"; spot.style.left = (r.left - pad) + "px";
-    spot.style.width = (r.width + pad * 2) + "px"; spot.style.height = (r.height + pad * 2) + "px";
-    var radius = getComputedStyle(el).borderTopLeftRadius;
-    spot.style.borderRadius = "calc(" + (radius === "0px" ? "12px" : radius) + " + " + pad + "px)";
-  }
-  document.addEventListener("click", function (ev) {
-    if (ev.target.closest("#tour-btn")) { T ? tourEnd() : tourStart(); return; }
-    var b = ev.target.closest("[data-tour-act]");
-    if (!b || !T) return;
-    var a = b.getAttribute("data-tour-act");
-    if (a === "close") tourEnd();
-    else if (a === "back" && T.i > 0) tourGo(T.i - 1);
-    else if (a === "next") { if (T.i === TOUR.length - 1) tourEnd(); else tourGo(T.i + 1); }
-  });
-  document.addEventListener("keydown", function (ev) {
-    if (T && ev.key === "Escape") tourEnd();
-  });
-  window.addEventListener("scroll", tourSpot, { passive: true });
-  window.addEventListener("resize", tourSpot);
-
-  // ---------- routing + render ----------
-  function route() {
-    var r = (location.hash || "#welcome").slice(1);
-    return ROUTES.indexOf(r) >= 0 ? r : "welcome";
-  }
-  var lastRoute = null;
-  function render() {
-    var r = route(), app = document.getElementById("app");
-    var fid = document.activeElement && document.activeElement.getAttribute("data-fid");
-    var html = { welcome: viewWelcome, setup: viewSetup, today: viewToday, review: viewReview, headspace: viewHeadspace, blob: function () { return viewBlob(false); } }[r]();
-    app.innerHTML = html;
-    document.querySelectorAll(".tabs a").forEach(function (a) {
-      if (a.getAttribute("data-tab") === r) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    var helped = {};
+    Object.keys(S.care).forEach(function (id) { var c = S.care[id]; (helped[c.kind] = helped[c.kind] || { n: 0, ok: 0, type: c.type }).n++; if (c.settled) helped[c.kind].ok++; });
+    var lines = Object.keys(helped).map(function (k) {
+      var x = helped[k], what = x.type === "rest" ? "A rest" : "Slow breathing";
+      return x.ok ? what + " puffs me back up after " + k.toLowerCase() + "." : what + " hasn't puffed me back up after " + k.toLowerCase() + " yet.";
     });
-    var dp = document.getElementById("daypick");
-    dp.innerHTML = r === "today" || r === "review"
-      ? '<label class="vh" for="day-select">Day</label><select id="day-select">' + DAYS.map(function (d) {
-          return '<option value="' + d.date + '"' + (d.date === S.day ? " selected" : "") + ">" + shortDate(d.date) + "</option>";
-        }).join("") + "</select>"
-      : "";
-    if (r !== lastRoute) {
-      window.scrollTo(0, 0);
-      if (lastRoute !== null) app.focus({ preventScroll: true });
-      document.title = { welcome: "Pressure or Effort", setup: "Meet the blob · Pressure or Effort", today: "The blob's day · Pressure or Effort", review: "Tonight · Pressure or Effort", headspace: "What it learned · Pressure or Effort", blob: "About the blob · Pressure or Effort" }[r];
-    } else if (fid) {
-      var el = app.querySelector('[data-fid="' + fid + '"]');
-      if (el) el.focus({ preventScroll: true });
-    }
-    lastRoute = r;
-    if (T) setTimeout(tourPlace, 0);
-  }
-  function commit() { save(); render(); }
-
-  function setValue(key, v) {
-    var p = key.split(":"), t = p[0], id = p.slice(1).join(":");
-    if (t === "try") S.tryLevel = v;
-    else if (t === "sb" || t === "sy") { var s = (S.stories[id] = S.stories[id] || {}); s[t === "sb" ? "blob" : "you"] = v; }
-    else if (t === "whole") S.whole[id] = v;
-    else if (t === "match") S.match[id] = v;
-    else if (t === "mp") setAns(id, { pressure: v, cantRemember: false });
-    else if (t === "mdue") setAns(id, { due: !!v });
-    else if (t === "mtop") setAns(id, { onTop: !!v });
+    h += '<section class="card"><h2 class="section">What helps me</h2>' + (lines.length ? lines.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
+      '<p class="small" style="margin-top:8px">When I ask for a little care, I\'ll remember what helped.</p>') + "</section>";
+    return h + "</div>" + tabbar("learned");
   }
 
-  var toastTimer;
-  function toast(msg) {
-    var t = document.getElementById("toast");
-    t.textContent = msg; t.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
+  // ---------- blob tab ----------
+  function viewBlobTab() {
+    var lv = todayLevel(), mine = ALL.filter(answered);
+    var kinds = { Pressure: [], Overload: [], Effort: [], Neither: [] };
+    mine.forEach(function (m) { kinds[kind(isMoving(m), ans(m).flat)].push(m); });
+    var h = '<div class="screen with-tabs"><p class="date">About the blob</p><h1 class="title">The blob</h1>' +
+      '<div style="display:flex;justify-content:center;margin-top:8px">' + blob(lv, { f: 2.4, box: 280, label: "The blob" }) + "</div>" +
+      '<section class="card"><h2 class="section">My feelings so far</h2><p class="small" style="margin-top:4px">Every moment you helped me with, at how flat I got.</p>';
+    Object.keys(kinds).forEach(function (k) {
+      var list = kinds[k];
+      h += '<div class="kindrow" style="margin-top:12px"><b>' + k + '</b><span class="smoke">' + list.length + "</span></div>" +
+        (list.length ? '<div class="collection">' + list.slice(-10).map(function (m) { return '<button data-go="#story/' + m.id + '" aria-label="' + esc(shortDate(m.date) + ", " + ampm(m.peakMin) + ", " + ans(m).flat + " of 7") + '">' + mini(ans(m).flat) + "</button>"; }).join("") + "</div>" : "");
+    });
+    h += '</section><section class="card"><h2 class="section">My blob</h2><p class="small" style="margin-top:4px">Change its colour and background any time.</p>' + lookPicker() + '</section>' +
+      '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
+    return h + "</div>" + tabbar("blob");
   }
 
-  document.addEventListener("click", function (ev) {
-    var el = ev.target.closest("[data-act]");
-    if (!el || T) return;
-    var act = el.getAttribute("data-act"), v = el.getAttribute("data-v"), key = el.getAttribute("data-key");
-    if (act === "set") { setValue(key, +v); commit(); }
-    else if (act === "setup") {
-      S.step = +v; if (S.step === 2) S.story = 0;
-      if (location.hash !== "#setup") { save(); location.hash = "#setup"; } else { lastRoute = null; commit(); }
+  // ---------- render ----------
+  function render() {
+    stopCare();
+    var r = route(), html;
+    if (r.name === "intro") html = viewOnboarding(0);
+    else if (/^step[1-6]$/.test(r.name)) html = viewOnboarding(+r.name.slice(4));
+    else if (r.name === "story") html = viewStory(r.arg);
+    else if (r.name === "care") html = viewCare(r.arg);
+    else if (r.name === "stories") html = viewStories();
+    else if (r.name === "learned") html = viewLearned();
+    else if (r.name === "blob") html = viewBlobTab();
+    else html = viewHome();
+    if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
+    if (overlay && overlay.type === "after") html += viewAfter(overlay);
+    app.innerHTML = html;
+    if (obDir) { var ob = app.querySelector(".ob"); if (ob) ob.classList.add("in-" + obDir); obDir = ""; }
+    if (r.name === "care") startCare(r.arg);
+    if (r.name === "home" && S.onboarded && !S.popupSeen && !overlay) {
+      var n = nextStory();
+      if (n) { S.popupSeen = true; save(); setTimeout(function () { if (route().name === "home") { overlay = { type: "popup", id: n.id }; render(); } }, 900); }
     }
-    else if (act === "story") {
-      var nx = S.story + +v;
-      if (nx < 0) S.step = 1;
-      else if (nx > 7) { S.step = 3; S.done = true; }
-      else S.story = nx;
-      lastRoute = null; commit();
-    }
-    else if (act === "retell") { S.step = 2; S.story = 0; save(); if (location.hash === "#setup") { lastRoute = null; render(); } else location.hash = "#setup"; }
-    else if (act === "cant") { var f = findMoment(key); setAns(key, { cantRemember: !ans(f.d, f.m).cantRemember }); commit(); }
-    else if (act === "next") { var n = moments(dayBy(S.day)).length; S.mi = (Math.min(S.mi, n - 1) + 1) % n; commit(); }
-    else if (act === "mi") { S.mi = +v; commit(); }
-    else if (act === "sugg") { S.sugg[key] = S.sugg[key] === v ? undefined : v; commit(); }
-    else if (act === "act") { setAns(key, { activity: v }); commit(); }
-    else if (act === "goday") { S.day = v; S.mi = 0; save(); location.hash = "#today"; }
-    else if (act === "mark") {
-      var now = new Date(), slot = Math.floor((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
-      var list = (S.marks[S.day] = S.marks[S.day] || []);
-      if (list.indexOf(slot) < 0) list.push(slot);
-      commit();
-      toast("Marked. The blob will ask you about it tonight.");
-    }
-  });
+  }
+  function rerenderKeepScroll() {
+    var sc = app.querySelector(".screen"), top = sc ? sc.scrollTop : 0;
+    render();
+    sc = app.querySelector(".screen"); if (sc) sc.scrollTop = top;
+  }
 
-  // arrow keys inside radio groups
-  document.addEventListener("keydown", function (ev) {
-    var el = ev.target.closest && ev.target.closest('[role="radio"]');
+  function afterSave(m) {
+    var list = storiesOf(m.day), i = list.indexOf(m);
+    var next = list.slice(i + 1).filter(function (x) { return !ans(x); })[0] || list.filter(function (x) { return !ans(x); })[0];
+    return next;
+  }
+
+  app.addEventListener("click", function (ev) {
+    var el = ev.target.closest("[data-go],[data-act]");
     if (!el) return;
-    var keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
-    if (!(ev.key in keys)) return;
-    var group = Array.prototype.slice.call(el.parentNode.querySelectorAll('[role="radio"]'));
-    var next = group[(group.indexOf(el) + keys[ev.key] + group.length) % group.length];
-    ev.preventDefault();
-    next.focus();
-    next.click();
+    var go_ = el.getAttribute("data-go");
+    if (go_) { overlay = null; draft = {}; go(go_); return; }
+    var act = el.getAttribute("data-act"), v = el.getAttribute("data-v"), k = el.getAttribute("data-k");
+    var r = route();
+    if (act === "ob") {
+      var i = +v;
+      if (i === 6) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1));
+    } else if (act === "look") {
+      S.look[k] = v; save();
+      var sc0 = app.querySelector(".screen"), top0 = sc0 ? sc0.scrollTop : 0;
+      render(); sc0 = app.querySelector(".screen"); if (sc0) sc0.scrollTop = top0;
+    } else if (act === "read") {
+      var n = nextStory(); if (n) { overlay = { type: "popup", id: n.id }; render(); }
+    } else if (act === "close") { overlay = null; render(); }
+    else if (act === "d") {
+      draft[k] = JSON.parse(v);
+      if (k === "flat") { var host = document.getElementById("dblob"); if (host) host.innerHTML = blob(draft.flat, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + draft.flat + " of 7 flat" }); }
+      var sc = app.querySelector(".screen"), top = sc.scrollTop, blobHtml = document.getElementById("dblob").innerHTML;
+      app.innerHTML = viewStory(r.arg);
+      document.getElementById("dblob").innerHTML = blobHtml;
+      app.querySelector(".screen").scrollTop = top;
+    } else if (act === "savestory" || act === "cant") {
+      var m = byId[r.arg], dr = draftFor(m), g = dr.guess;
+      if (act === "savestory" && !dr.flat) return;
+      S.answers[m.id] = act === "cant"
+        ? { activity: dr.activity, fitbitGuess: m.watch, corrected: dr.activity !== m.watch, due: null, onTop: null, flat: null, cantRemember: true }
+        : { activity: dr.activity, fitbitGuess: m.watch, corrected: dr.activity !== m.watch, due: dr.due, onTop: dr.onTop, flat: dr.flat, cantRemember: false };
+      save(); draft = {};
+      if (act === "cant") { var nx = afterSave(m); go(nx ? "#story/" + nx.id : "#home"); return; }
+      overlay = { type: "after", id: m.id, reflect: reflection(m, S.answers[m.id], g), last: !afterSave(m) };
+      render();
+    } else if (act === "afternext") {
+      var mm = byId[overlay.id]; overlay = null;
+      var nx2 = afterSave(mm); go(nx2 ? "#story/" + nx2.id : "#home");
+    } else if (act === "storyback") { draft = {}; go("#home"); }
+    else if (act === "caredone") finishCare(false);
+    else if (act === "careexit") {
+      var id = r.arg, m3 = byId[id]; stopCare(); careRun = null;
+      var nx3 = m3 && afterSave(m3);
+      go(nx3 ? "#story/" + nx3.id : id === "free" ? "#blob" : "#home");
+    } else if (act === "sugg") { S.sugg[k] = S.sugg[k] === v ? null : v; save(); rerenderKeepScroll(); }
   });
+  // swipe through the intro: left for next, right for back (touch, or a mouse drag on a laptop)
+  var swipe = null, obDir = "";
+  function obIndex() { var n = route().name; return n === "intro" ? 0 : /^step[1-6]$/.test(n) ? +n.slice(4) : -1; }
+  app.addEventListener("pointerdown", function (e) {
+    if (obIndex() < 0 || e.target.closest("button")) return;
+    swipe = { x: e.clientX, y: e.clientY };
+  });
+  window.addEventListener("pointerup", function (e) {
+    if (!swipe) return;
+    var dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+    swipe = null;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    var i = obIndex();
+    if (dx < 0) { obDir = "next"; if (i === 6) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1)); }
+    else if (i > 0) { obDir = "prev"; go(i === 1 ? "#intro" : "#step" + (i - 1)); }
+  });
+  window.addEventListener("pointercancel", function () { swipe = null; });
 
-  document.addEventListener("change", function (ev) {
-    if (ev.target.id === "day-select") { S.day = ev.target.value; S.mi = 0; commit(); }
+  // tap the blob and it jumps
+  app.addEventListener("pointerdown", function (e) {
+    var st = e.target.closest(".bstage"); if (!st || st.classList.contains("static")) return;
+    var svg = st.querySelector(".bsvg"); if (!svg) return;
+    svg.classList.remove("jump"); void svg.getBoundingClientRect(); svg.classList.add("jump");
   });
-  window.addEventListener("hashchange", render);
+  app.addEventListener("animationend", function (e) { if (e.animationName === "jump") e.target.classList.remove("jump"); });
+
+  window.addEventListener("hashchange", function () { overlay = null; render(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && overlay && overlay.type === "popup") { overlay = null; render(); } });
+
+  // expose for testing in the console
+  window.__blob = { S: S, selfGuess: selfGuess, vignette: vignette, byId: byId, ALL: ALL };
   render();
 })();
