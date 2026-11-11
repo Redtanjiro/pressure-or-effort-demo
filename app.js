@@ -277,6 +277,7 @@
     spark: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 2.5Q13.4 10.6 21.5 12 13.4 13.4 12 21.5 10.6 13.4 2.5 12 10.6 10.6 12 2.5z" fill="currentColor"/></svg>',
     heart: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 20.5C5 16 2.5 12.5 2.5 8.8A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 9.5 2.2c0 3.7-2.5 7.2-9.5 11.7z" fill="currentColor"/></svg>',
     list: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+    shirt: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M8.5 3.5L4 6l1.8 4 2.2-1v11.5h8V9l2.2 1L20 6l-4.5-2.5c-.5 1.6-1.9 2.6-3.5 2.6s-3-1-3.5-2.6z"/></svg>',
     tick: '<svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#ffe9a6"/><path d="M6 10.5l2.6 2.5L14 7.5" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
 
@@ -385,13 +386,13 @@
   function viewHome() {
     var d = todayDay(), lv = todayLevel();
     var h = '<div class="screen with-tabs home"><div class="home-head">' + storyBtn() + '<h1 class="title">Blob\'s day</h1><p class="date">' + longDate(TODAY) + "</p></div>" +
-      '<div class="home-blob">' + blob(lv, { f: 2.6, box: 300, label: "Blob, " + levelLabel(lv) }) + "</div>" +
+      '<div class="home-blob">' + blob(lv, { f: 2.6, box: 300, label: "Blob, " + levelLabel(lv) }) +
+        '<button class="custombtn" data-act="lookopen" aria-label="Change Blob\'s look">' + ICON.shirt + "</button></div>" +
       '<section class="card howcard"><p class="caption">How is blob doing today</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small">' + cap(levelWord(lv)) + ". " + LEVEL_LINE[lv] + "</p></section>" +
       '<div class="hometiles">' +
         '<a class="htile pal-glow" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
         '<a class="htile pal-' + S.look.bg + '" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>" +
       '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
-      '<section class="card"><h2 class="section">My blob</h2><p class="small" style="margin-top:4px">Change its colour and background any time.</p>' + lookPicker() + "</section>" +
       '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
     return h + "</div>" + tabbar("home");
   }
@@ -765,6 +766,11 @@
     });
     return h + "</div></div>" + tabbar("learned");
   }
+  function viewLook() {
+    return '<div class="backdrop" data-act="close"></div><div class="sheet looksheet" role="dialog" aria-modal="true" aria-label="Blob\'s look"><div class="grab"></div>' +
+      '<div class="illo-hero">' + blob(1, { f: 1.7, box: 180, boxH: 170, label: "Blob, " + lookColor()[1] }) + '</div><h2>Blob\'s look</h2><p class="small" style="text-align:center;margin-top:4px">Change its colour and background any time.</p>' +
+      lookPicker() + '<div style="height:16px"></div><button class="btn" data-act="close">Done</button></div>';
+  }
   var byNode = {};
   function viewNode(id) {
     var n = byNode[id]; if (!n) return "";
@@ -810,6 +816,7 @@
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
     if (overlay && overlay.type === "after") html += viewAfter(overlay);
     if (overlay && overlay.type === "node") html += viewNode(overlay.id);
+    if (overlay && overlay.type === "look") html += viewLook();
     var hadSheet = !!app.querySelector(".sheet");
     app.innerHTML = html;
     var main = app.querySelector(".screen"); if (main) main.setAttribute("role", "main");
@@ -817,10 +824,11 @@
     if (sheet) {
       // keep focus inside the open sheet
       app.querySelectorAll(".screen, .tabbar").forEach(function (el) { el.inert = true; });
-      var fb = sheet.querySelector("button"); if (fb) fb.focus();
+      var fb = (keepFocus && sheet.querySelector(keepFocus)) || sheet.querySelector("button"); if (fb) fb.focus();
     } else if (hadSheet) {
-      var sb = app.querySelector(".storybtn"); if (sb) sb.focus();
+      var sb = app.querySelector(returnFocus || ".storybtn") || app.querySelector(".storybtn"); if (sb) sb.focus();
     }
+    keepFocus = null;
     if (obDir) { var ob = app.querySelector(".ob"); if (ob) ob.classList.add("in-" + obDir); obDir = ""; }
     if (r.name === "care") startCare(r.arg);
     if (r.name === "home" && S.onboarded && !S.popupSeen && !overlay) {
@@ -840,9 +848,16 @@
     return next;
   }
 
+  // which button opened the sheet (focus goes back there), and which control to keep focused across a re-render
+  var returnFocus = null, keepFocus = null;
   app.addEventListener("click", function (ev) {
     var el = ev.target.closest("[data-go],[data-act]");
     if (!el) return;
+    var a0 = el.getAttribute("data-act");
+    if (a0 === "storybtn") returnFocus = ".storybtn";
+    else if (a0 === "lookopen") returnFocus = ".custombtn";
+    else if (a0 === "node") returnFocus = '[data-act="node"][data-k="' + el.getAttribute("data-k") + '"]';
+    else if (a0 === "look" || a0 === "sugg") keepFocus = '[data-act="' + a0 + '"][data-k="' + el.getAttribute("data-k") + '"][data-v="' + el.getAttribute("data-v") + '"]';
     var go_ = el.getAttribute("data-go");
     if (go_) { overlay = null; draft = {}; go(go_); return; }
     var act = el.getAttribute("data-act"), v = el.getAttribute("data-v"), k = el.getAttribute("data-k");
@@ -854,7 +869,8 @@
       S.look[k] = v; save();
       var sc0 = app.querySelector(".screen"), top0 = sc0 ? sc0.scrollTop : 0;
       render(); sc0 = app.querySelector(".screen"); if (sc0) sc0.scrollTop = top0;
-    } else if (act === "storybtn") {
+    } else if (act === "lookopen") { overlay = { type: "look" }; rerenderKeepScroll(); }
+    else if (act === "storybtn") {
       var ns = nextStory(); if (ns) { overlay = { type: "popup", id: ns.id }; rerenderKeepScroll(); } else go("#stories");
     } else if (act === "read") {
       var n = nextStory(); if (n) { overlay = { type: "popup", id: n.id }; render(); }
