@@ -511,3 +511,30 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
   .hg-b.metoo::before, .hg-me.metoo::after { animation: none; opacity: 1; }
 }
 a.btn { text-decoration: none; }
+
+/* ---------- home: hero, stories, destress ---------- */
+.home-head { text-align: center; margin-top: 44px; }
+.home-head .date { margin-top: 0; font-size: 14px; }
+.home-head .title { margin-top: 4px; font-size: 30px; }
+.home-head .storybtn { top: 2px; }
+.hero { text-align: center; }
+.feel { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; max-width: 320px; margin: -6px auto 0; }
+.feelmeter { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
+.feelmeter span { font-size: 13px; color: var(--smoke); }
+.homecard { border-radius: 24px; }
+.storiescard { display: grid; grid-template-columns: 64px 1fr; gap: 12px 14px; align-items: center; }
+.storiescard .small { margin-top: 4px; }
+.storiescard .btn, .storiescard .textbtn { grid-column: 1 / -1; }
+.homecard > .small { margin-top: 4px; }
+.textbtn.left { text-align: left; width: auto; height: auto; min-height: 44px; display: inline-flex; align-items: center; text-decoration: none; color: var(--ink); }
+.dtiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.dtile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 120px; padding: 18px 8px 12px;
+  border-radius: 20px; background: var(--chip); border: 2px solid transparent; color: var(--ink); text-decoration: none; text-align: center; }
+.dtile b { font-size: 15px; }
+.dtile > span:last-child { font-size: 13px; color: var(--smoke); }
+.dtile.on { border-color: var(--ink); }
+.dtile.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.dtile.primary > span:last-child { color: rgba(255, 255, 255, .85); }
+.sugg { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); padding: 2px 8px; border-radius: 999px; background: var(--tab); color: var(--ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.dtile.on .illo { margin-top: 12px; }
+.together { margin-top: 6px; font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }

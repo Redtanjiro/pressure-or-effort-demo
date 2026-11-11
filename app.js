@@ -452,20 +452,49 @@
     });
     return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Its heart rate from 6am to now, with ' + plural(d.moments.length, "story", "stories") + ' marked">' + g + "</svg>";
   }
+  // today's level: the latest answered story today, else Blob's own guess for the latest story, else none
+  function homeToday() {
+    var list = storiesOf(todayDay()).slice().sort(function (a, b) { return b.peakMin - a.peakMin; });
+    var done = list.filter(answered);
+    if (done.length) { var a = ans(done[0]); return { k: a.flat, moving: !!MOVING[a.activity] }; }
+    if (list.length) return { k: selfGuess(list[0]).flat, moving: bodyMoving(list[0]), guessed: true };
+    return { k: null };
+  }
+  var FEEL = { 1: "I'm not flat at all today.", 2: "I'm barely flat today. Mostly bouncing along.", 3: "I'm a little flat today.", 4: "I'm halfway flat today.",
+    5: "I'm quite flat today.", 6: "I'm very flat today.", 7: "I'm completely flat today." };
   function viewHome() {
-    var d = todayDay(), lv = todayLevel();
-    var h = '<div class="screen with-tabs home"><div class="home-head">' + storyBtn() + '<h1 class="title">Blob\'s day</h1><p class="date">' + longDate(TODAY) + "</p></div>" +
-      '<div class="home-blob">' + blob(lv, { f: 2.6, box: 300, label: "Blob, " + levelLabel(lv) }) +
+    var d = todayDay(), t = homeToday(), k = t.k, list = storiesOf(d), waiting = list.filter(function (m) { return !ans(m); }).length;
+    var h = '<div class="screen with-tabs home"><div class="home-head">' + storyBtn() + '<p class="date">' + longDate(TODAY) + '</p><h1 class="title">Blob\'s day</h1></div>';
+    // 1. how Blob is feeling
+    h += '<section class="hero"><div class="home-blob">' + blob(k || 1, { f: 2.6, box: 300, state: k ? undefined : "wait", pal: k && k >= 4 ? "dusk" : S.look.bg, label: "Blob, " + (k ? levelWord(k) : "not sure yet") }) +
         '<button class="custombtn" data-act="lookopen" aria-label="Change Blob\'s look">' + ICON.shirt + "</button></div>" +
-      '<section class="card howcard"><div class="how-l"><p class="caption">How is Blob doing today</p><div class="how-now">' +
-        blob(lv, { f: 0.95, box: 64, boxH: 64, noSphere: true }) + '<p><b>' + cap(levelWord(lv)) + "</b>" + LEVEL_LINE[lv] + "</p></div></div>" +
-        '<p class="how-n" aria-label="' + cap(levelLabel(lv)) + '">' + lv + "<span> of 7</span></p></section>" +
-      hangoutCard() +
+      '<h2 class="feel">' + (k ? FEEL[k] : "I don't know how I feel yet today.") + "</h2>" +
+      (k ? '<div class="feelmeter">' + meter(k) + "<span>" + cap(levelLabel(k)) + "</span></div>" : "") + "</section>";
+    // 2. help Blob with a story
+    var sc = waiting ? { t: plural(waiting, "story", "stories") + (waiting === 1 ? " is" : " are") + " waiting", b: "Help me understand what my heart was doing today.",
+        btn: '<button class="btn" data-act="storybtn">Help Blob with a story</button>' } :
+      list.length ? { t: "All caught up", b: "Thanks for helping me today.", btn: '<a class="textbtn left" href="#stories">See my stories</a>' } :
+      { t: "No stories yet", b: "When my heart races today, I'll tell you about it this evening.", btn: "" };
+    h += '<section class="card homecard storiescard"><span class="tile t64">' + illo("heart-racing", 60) + '</span><div class="grow"><h2 class="section">' + sc.t + '</h2><p class="small">' + sc.b + "</p></div>" + sc.btn + "</section>";
+    // 3. destress, suggested from today's kind
+    var kd = k ? kind(t.moving, k) : "Neither", rest = kd === "Effort";
+    var body = { Pressure: "I'm feeling flat. Breathing slowly helps me puff back up.", Overload: "Can we slow down first?", Effort: "I've been busy. A rest would be nice.", Neither: "Want to take a breath with me anyway?" }[kd];
+    var primary = !waiting && k >= 5;
+    var opt = function (on, href, art, title, sub) {
+      return '<a class="dtile' + (on ? " on" : "") + (on && primary ? " primary" : "") + '" href="' + href + '" aria-label="' + (on ? "Suggested: " : "") + title + ", " + sub + '">' +
+        (on ? '<span class="sugg" aria-hidden="true">Suggested</span>' : "") + illo(art, 56) + "<b>" + title + "</b><span>" + sub + "</span></a>";
+    };
+    h += '<section class="card homecard"><h2 class="section">Take a moment with me</h2><p class="small">' + body + '</p><div class="dtiles">' +
+      opt(!rest, "#care/free", "breathing", "Breathe with me", "1 minute") + opt(rest, "#care/free-rest", "water-and-rest", "Rest with me", "30 seconds") +
+      '</div><a class="textbtn left together" href="#hangout">Or breathe together with other blobs</a></section>';
+    // 4. the data
+    h += '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
+      '<div class="stats"><div class="stat"><b>' + Math.round(d.rhr) + '</b><span>resting heartbeat</span></div><div class="stat"><b>' + d.steps.toLocaleString("en-AU") + '</b><span>steps</span></div><div class="stat"><b>' + list.length + "</b><span>stories</span></div></div>";
+    // 5. together, and the rest of what Blob knows
+    h += hangoutCard() +
       '<div class="hometiles">' +
         '<a class="htile pal-sea" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
-        '<a class="htile pal-sea" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>" +
-      '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
-      '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
+        '<a class="htile pal-sea" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>";
     return h + "</div>" + tabbar("home");
   }
 
@@ -557,7 +586,7 @@
   }
   var careRun = null;
   function viewCare(id) {
-    var m = byId[id], c = careFor(m), k = c.k, lv = c.lv;
+    var m = byId[id], c = id === "free-rest" ? { k: "Effort", lv: 4 } : careFor(m), k = c.k, lv = c.lv;
     var title = k === "Effort" ? "Rest with me" : "Breathe with me";
     var sub = k === "Effort" ? "Have some water, stretch, or sit for a minute. No need to soothe anything." : k === "Overload" ? "Let's just pause for a moment first." : "In for 4, out for 6. Follow my shape.";
     return '<div class="screen"><div class="care"><div class="dhead"><button class="back" data-act="careexit" aria-label="Not now">' + ICON.back + "</button><span></span><span></span></div>" +
@@ -567,7 +596,7 @@
   }
   function startCare(id) {
     stopCare();
-    var m = byId[id], k = careFor(m).k, rest = m ? m.day.rhr : todayDay().rhr;
+    var m = byId[id], k = id === "free-rest" ? "Effort" : careFor(m).k, rest = m ? m.day.rhr : todayDay().rhr;
     var start = m ? m.bpm - 6 : rest + 22, t0 = Date.now(), total = k === "Effort" ? 30000 : 60000, pause = k === "Overload" ? 5000 : 0;
     var cue = document.getElementById("cue"), bpm = document.getElementById("bpm");
     careRun = { id: id, k: k, start: start, rest: rest, t0: t0, total: total + pause, timer: setInterval(tick, 250), settled: false };
@@ -884,11 +913,11 @@
   function hangoutCard() {
     var k = hangoutLevel();
     if (k == null) return '<section class="card hgcard"><div class="grow"><h2 class="section">Hang out</h2><p class="small">Help me with a story first, then we can go and hang out.</p></div>' +
-      '<button class="btn small-btn" data-act="storybtn">Read a story</button></section>';
+      '<button class="btn ghost-btn" data-act="storybtn">Read a story</button></section>';
     var band = bandOf(k), others = HangoutSim.peek(TODAY, band);
     return '<section class="card hgcard"><div class="hg-mini" aria-hidden="true">' + others.slice(0, 3).map(function (b) {
       return blob(BANDS[band].k, { f: 0.55, still: true, noSphere: true, box: 40, boxH: 40, color: b.colour });
-    }).join("") + '</div><p class="grow hg-t">' + others.length + ' blobs are having a day like mine</p><a class="btn small-btn" href="#hangout">Hang out</a></section>';
+    }).join("") + '</div><p class="grow hg-t">' + others.length + ' blobs are having a day like mine</p><a class="btn ghost-btn" href="#hangout">Hang out</a></section>';
   }
   var hg = null;
   function viewHangout() {
