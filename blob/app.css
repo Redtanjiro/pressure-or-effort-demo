@@ -89,6 +89,15 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .ob-center .ticks { text-align: left; font-size: 14px; }
 .ob-big h1, .ob-big .sub { font-size: 30px; }
 .ob-big .sub { font-weight: 700; letter-spacing: -0.02em; margin-top: 28px; }
+/* choose your blob */
+.ob-choose .ob-blob { min-height: 260px; }
+.picker { margin-top: 16px; text-align: left; }
+.pick-h { font-size: 13px; font-weight: 700; color: var(--smoke); margin: 12px 0 8px; }
+.swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.sw { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; font-size: 11px; color: var(--smoke); border-radius: 12px; min-height: 44px; }
+.sw-dot { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); transition: box-shadow .15s; }
+.sw.on { color: var(--ink); font-weight: 700; }
+.sw.on .sw-dot { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
 /* props on the blob */
 .acc g, .acc text, .acc path, .acc circle { transform-box: fill-box; }
 .a-think { animation: thinkbob 3.2s ease-in-out infinite; }
@@ -210,6 +219,8 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .pal-calm { background: radial-gradient(circle at 28% 24%, #ffe3d3 0, rgba(255, 227, 211, 0) 46%), radial-gradient(circle at 78% 30%, #f7b9d4 0, rgba(247, 185, 212, 0) 52%), radial-gradient(circle at 34% 82%, #cdbdf6 0, rgba(205, 189, 246, 0) 56%), radial-gradient(circle at 82% 84%, #ffbf96 0, rgba(255, 191, 150, 0) 52%), #f8d6cc; }
 .pal-dusk { background: radial-gradient(circle at 30% 26%, #e6e0fb 0, rgba(230, 224, 251, 0) 48%), radial-gradient(circle at 76% 34%, #b9b4ee 0, rgba(185, 180, 238, 0) 52%), radial-gradient(circle at 36% 80%, #e9b8cf 0, rgba(233, 184, 207, 0) 56%), radial-gradient(circle at 80% 82%, #9fb3e8 0, rgba(159, 179, 232, 0) 50%), #d6cdee; }
 .pal-glow { background: radial-gradient(circle at 30% 26%, #fff1c9 0, rgba(255, 241, 201, 0) 48%), radial-gradient(circle at 76% 34%, #ffc7a3 0, rgba(255, 199, 163, 0) 52%), radial-gradient(circle at 36% 80%, #f6b3c9 0, rgba(246, 179, 201, 0) 56%), radial-gradient(circle at 80% 82%, #ffd27a 0, rgba(255, 210, 122, 0) 50%), #ffdcc0; }
+.pal-sea { background: radial-gradient(circle at 30% 26%, #e2f6f4 0, rgba(226, 246, 244, 0) 48%), radial-gradient(circle at 76% 34%, #9fdcd8 0, rgba(159, 220, 216, 0) 52%), radial-gradient(circle at 36% 80%, #b8d4f6 0, rgba(184, 212, 246, 0) 56%), radial-gradient(circle at 80% 82%, #7cc3e0 0, rgba(124, 195, 224, 0) 50%), #bfe3e6; }
+.pal-mist { background: radial-gradient(circle at 30% 26%, #ffffff 0, rgba(255, 255, 255, 0) 48%), radial-gradient(circle at 76% 34%, #e4ded8 0, rgba(228, 222, 216, 0) 52%), radial-gradient(circle at 36% 80%, #ddd8e6 0, rgba(221, 216, 230, 0) 56%), radial-gradient(circle at 80% 82%, #e8dccf 0, rgba(232, 220, 207, 0) 50%), #ebe5df; }
 .pal-sage { background: radial-gradient(circle at 30% 26%, #eef6e2 0, rgba(238, 246, 226, 0) 48%), radial-gradient(circle at 76% 34%, #bfe0d4 0, rgba(191, 224, 212, 0) 52%), radial-gradient(circle at 36% 80%, #f7cdb8 0, rgba(247, 205, 184, 0) 56%), radial-gradient(circle at 80% 82%, #a9cfe6 0, rgba(169, 207, 230, 0) 50%), #d5e6d6; }
 .bsvg { position: absolute; overflow: visible; }
 .bsvg g { transform-box: fill-box; }
