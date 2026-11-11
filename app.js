@@ -278,6 +278,7 @@
     heart: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 20.5C5 16 2.5 12.5 2.5 8.8A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 9.5 2.2c0 3.7-2.5 7.2-9.5 11.7z" fill="currentColor"/></svg>',
     list: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     shirt: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M8.5 3.5L4 6l1.8 4 2.2-1v11.5h8V9l2.2 1L20 6l-4.5-2.5c-.5 1.6-1.9 2.6-3.5 2.6s-3-1-3.5-2.6z"/></svg>',
+    hangout: '<svg width="24" height="22" viewBox="0 0 26 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7.5 6C10.5 6 12.5 8.4 12.5 12.4C12.5 16.6 11.2 18 7.5 18C3.8 18 2.5 16.6 2.5 12.4C2.5 8.4 4.5 6 7.5 6Z"/><path d="M17.5 3C21 3 23.5 6 23.5 10.8C23.5 15.8 22 18 17.5 18C15.6 18 14.4 17.6 13.7 16.6"/></svg>',
     tick: '<svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#ffe9a6"/><path d="M6 10.5l2.6 2.5L14 7.5" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
 
@@ -295,7 +296,7 @@
   }
 
   function tabbar(active) {
-    var tabs = [["home", "Home"], ["stories", "Journal"], ["learned", "Journey"]];
+    var tabs = [["home", "Home"], ["stories", "Journal"], ["learned", "Journey"], ["hangout", "Community"]];
     return '<nav class="tabbar" aria-label="Main">' + tabs.map(function (t) {
       return '<a class="tab" href="#' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : "") + '><span class="ic">' + ICON[t[0]] + "</span>" + t[1] + "</a>";
     }).join("") + "</nav>";
@@ -922,15 +923,14 @@
   var hg = null;
   function viewHangout() {
     var k = hg ? hg.level : hangoutLevel();
-    if (k == null) return '<div class="screen"><div class="dhead"><button class="back" data-go="#home" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
-      '<h1 class="title" style="margin-top:4px">Hang out</h1><p class="lede">Help me with a story first, then we can go and hang out.</p><div style="height:20px"></div><button class="btn" data-act="storybtn">Read a story</button></div>';
+    if (k == null) return '<div class="screen with-tabs"><div class="titlerow top"><h1 class="title">Community</h1>' + storyBtn() + "</div>" +
+      '<p class="lede">Help me with a story first, then we can go and hang out with blobs having a day like mine.</p><div style="height:20px"></div><button class="btn" data-act="storybtn">Read a story</button></div>' + tabbar("hangout");
     var B = BANDS[hg ? hg.band : bandOf(k)];
-    return '<div class="screen hangout"><div class="dhead"><button class="back" data-act="hgleave" aria-label="Leave">' + ICON.back + '</button><span></span><span></span></div>' +
-      '<h1 class="title" style="margin-top:4px">' + B.name + '</h1><p class="lede">Blobs having a day like mine.</p>' +
+    return '<div class="screen with-tabs hangout"><p class="date" style="margin-top:44px">Community</p><h1 class="title">' + B.name + '</h1><p class="lede">Blobs having a day like mine.</p>' +
       '<div class="hg-stage" id="hgstage"><div class="sphere hg-sphere pal-' + B.pal + '"></div><div id="hgblobs"></div>' +
       '<div class="hg-me" id="hgme">' + blob(B.k, { f: 1.2, box: 110, boxH: 104, noSphere: true, label: "You" }) + '<span aria-hidden="true">You</span></div>' +
       '<p class="hg-count" id="hgcount"></p></div><p class="hg-line" id="hgline" aria-live="polite"></p>' +
-      '<div class="hg-acts"><button class="opt" data-act="hgwave" id="hgwave">Wave</button><button class="opt" data-act="hgbreathe" id="hgbreathe">Breathe together</button><button class="textbtn" data-act="hgleave">Leave</button></div></div>';
+      '<div class="hg-acts"><button class="opt" data-act="hgwave" id="hgwave">Wave</button><button class="opt" data-act="hgbreathe" id="hgbreathe">Breathe together</button><button class="textbtn" data-act="hgleave">Leave</button></div></div>' + tabbar("hangout");
   }
   function viewHgIntro() {
     return '<div class="backdrop"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Hang out"><div class="grab"></div><div class="illo-hero">' +
@@ -1042,7 +1042,7 @@
     if (overlay && overlay.type === "node") html += viewNode(overlay.id);
     if (overlay && overlay.type === "look") html += viewLook();
     if (overlay && overlay.type === "hgintro") html += viewHgIntro();
-    var hadSheet = !!app.querySelector(".sheet");
+    var hadSheet = !!app.querySelector(".sheet"); lastY = 0;
     app.innerHTML = html;
     var main = app.querySelector(".screen"); if (main) main.setAttribute("role", "main");
     var sheet = app.querySelector(".sheet");
@@ -1076,6 +1076,19 @@
     return next;
   }
 
+  // the floating tab bar shrinks to the current tab while you scroll down, and comes back when you scroll up
+  var lastY = 0;
+  app.addEventListener("scroll", function (e) {
+    var sc = e.target; if (!sc.classList || !sc.classList.contains("with-tabs")) return;
+    var bar = app.querySelector(".tabbar"), y = sc.scrollTop; if (!bar) return;
+    if (y < 24 || y < lastY - 6) bar.classList.remove("mini");
+    else if (y > lastY + 6 && y > 80) bar.classList.add("mini");
+    lastY = y;
+  }, true);
+  app.addEventListener("click", function (e) {
+    var bar = e.target.closest(".tabbar.mini"); if (!bar) return;
+    e.preventDefault(); e.stopPropagation(); bar.classList.remove("mini");
+  }, true);
   // which button opened the sheet (focus goes back there), and which control to keep focused across a re-render
   var returnFocus = null, keepFocus = null;
   app.addEventListener("click", function (ev) {
