@@ -7,7 +7,7 @@
 
   // ---------- state ----------
   var S = (function () {
-    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false, look: { color: "honey", bg: "calm" }, anchors: {} };
+    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false, look: { color: "honey", bg: "calm" }, anchors: {}, hangout: { seenIntro: false } };
     try { var raw = localStorage.getItem(KEY); if (raw) { var v = JSON.parse(raw); for (var k in v) if (k in s) s[k] = v[k]; } } catch (e) { /* no storage */ }
     return s;
   })();
@@ -460,6 +460,7 @@
       '<section class="card howcard"><div class="how-l"><p class="caption">How is Blob doing today</p><div class="how-now">' +
         blob(lv, { f: 0.95, box: 64, boxH: 64, noSphere: true }) + '<p><b>' + cap(levelWord(lv)) + "</b>" + LEVEL_LINE[lv] + "</p></div></div>" +
         '<p class="how-n" aria-label="' + cap(levelLabel(lv)) + '">' + lv + "<span> of 7</span></p></section>" +
+      hangoutCard() +
       '<div class="hometiles">' +
         '<a class="htile pal-sea" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
         '<a class="htile pal-sea" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>" +
@@ -871,9 +872,131 @@
       '<h1 class="title" style="margin-top:4px">Everything I know</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>' + knowHtml() + "</div>" + tabbar("home");
   }
 
+  // ---------- hangout: blobs having a similar day ----------
+  // rooms come from today's level, from the user's own answers only; only the band ever leaves the phone
+  var BANDS = { bounce: { name: "Bouncing along", pal: "calm", k: 2 }, bitflat: { name: "A bit flat", pal: "glow", k: 3 }, flat: { name: "Feeling flat", pal: "dusk", k: 6 } };
+  function hangoutLevel() {
+    var mine = todayDay().moments.filter(function (m) { var a = S.answers[m.id]; return a && !a.cantRemember && a.flat; })
+      .sort(function (a, b) { return b.peakMin - a.peakMin; });
+    return mine.length ? S.answers[mine[0].id].flat : null;
+  }
+  function bandOf(k) { return k <= 2 ? "bounce" : k <= 4 ? "bitflat" : "flat"; }
+  function hangoutCard() {
+    var k = hangoutLevel();
+    if (k == null) return '<section class="card hgcard"><div class="grow"><h2 class="section">Hang out</h2><p class="small">Help me with a story first, then we can go and hang out.</p></div>' +
+      '<button class="btn small-btn" data-act="storybtn">Read a story</button></section>';
+    var band = bandOf(k), others = HangoutSim.peek(TODAY, band);
+    return '<section class="card hgcard"><div class="hg-mini" aria-hidden="true">' + others.slice(0, 3).map(function (b) {
+      return blob(BANDS[band].k, { f: 0.55, still: true, noSphere: true, box: 40, boxH: 40, color: b.colour });
+    }).join("") + '</div><p class="grow hg-t">' + others.length + ' blobs are having a day like mine</p><a class="btn small-btn" href="#hangout">Hang out</a></section>';
+  }
+  var hg = null;
+  function viewHangout() {
+    var k = hg ? hg.level : hangoutLevel();
+    if (k == null) return '<div class="screen"><div class="dhead"><button class="back" data-go="#home" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
+      '<h1 class="title" style="margin-top:4px">Hang out</h1><p class="lede">Help me with a story first, then we can go and hang out.</p><div style="height:20px"></div><button class="btn" data-act="storybtn">Read a story</button></div>';
+    var B = BANDS[hg ? hg.band : bandOf(k)];
+    return '<div class="screen hangout"><div class="dhead"><button class="back" data-act="hgleave" aria-label="Leave">' + ICON.back + '</button><span></span><span></span></div>' +
+      '<h1 class="title" style="margin-top:4px">' + B.name + '</h1><p class="lede">Blobs having a day like mine.</p>' +
+      '<div class="hg-stage" id="hgstage"><div class="sphere hg-sphere pal-' + B.pal + '"></div><div id="hgblobs"></div>' +
+      '<div class="hg-me" id="hgme">' + blob(B.k, { f: 1.2, box: 110, boxH: 104, noSphere: true, label: "You" }) + '<span aria-hidden="true">You</span></div>' +
+      '<p class="hg-count" id="hgcount"></p></div><p class="hg-line" id="hgline" aria-live="polite"></p>' +
+      '<div class="hg-acts"><button class="opt" data-act="hgwave" id="hgwave">Wave</button><button class="opt" data-act="hgbreathe" id="hgbreathe">Breathe together</button><button class="textbtn" data-act="hgleave">Leave</button></div></div>';
+  }
+  function viewHgIntro() {
+    return '<div class="backdrop"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Hang out"><div class="grab"></div><div class="illo-hero">' +
+      blob(2, { f: 1.3, box: 140, boxH: 120, noSphere: true }) + '</div><p class="vig" style="font-weight:600">Everyone here is a blob. No names, no stories, just how flat we are today.</p>' +
+      '<div style="height:16px"></div><button class="btn" data-act="hgintrook">Got it</button></div>';
+  }
+  // random spots that don't overlap, clear of your blob at the front; new every visit
+  function hgPlace(n, W, H) {
+    var out = [], tries = 0;
+    while (out.length < n && tries++ < 4000) {
+      var p = { x: 44 + Math.random() * (W - 88), y: 50 + Math.random() * (H - 240) };
+      if (out.every(function (q) { return Math.hypot(q.x - p.x, q.y - p.y) > 74; })) out.push(p);
+    }
+    return out;
+  }
+  function hgStart() {
+    var stage = document.getElementById("hgstage"); if (!stage) return;
+    if (!hg) {
+      var k = hangoutLevel(), band = bandOf(k);
+      hg = { level: k, band: band, lastWave: 0, metooAt: {}, joined: {}, breath: null, cue: null, lineTimer: null };
+      hg.sess = HangoutSim.join(TODAY, band, S.look.color, hgEvent);
+      hg.pos = hgPlace(Math.min(12, hg.sess.blobs.length), stage.clientWidth, stage.clientHeight);
+    }
+    if (!S.hangout.seenIntro && !overlay) { overlay = { type: "hgintro" }; render(); return; }
+    hgPaint();
+  }
+  function hgPaint() {
+    var host = document.getElementById("hgblobs"); if (!host || !hg) return;
+    var B = BANDS[hg.band], list = hg.sess.blobs.slice(0, hg.pos.length), few = list.length < 3;
+    host.innerHTML = few ? "" : list.map(function (b, i) {
+      var p = hg.pos[i];
+      return '<button class="hg-b' + (hg.joined[b.anonId] ? " breathing" : "") + '" data-act="hgmetoo" data-k="' + b.anonId + '" style="left:' + p.x.toFixed(0) + "px;top:" + p.y.toFixed(0) + "px;--dl:-" + ((i * 0.73) % 5).toFixed(2) + 's" aria-label="A blob. Say me too">' +
+        blob(B.k, { f: 0.72, box: 72, boxH: 72, noSphere: true, color: b.colour }) + "</button>";
+    }).join("");
+    var me = document.getElementById("hgme"); if (me) me.classList.toggle("breathing", !!hg.breath);
+    hgCount();
+  }
+  function hgCount() {
+    var c = document.getElementById("hgcount"); if (!c || !hg) return;
+    var n = hg.sess.blobs.length;
+    if (n < 3) { c.textContent = "It's quiet here right now. I'll wait with you."; return; }
+    c.textContent = hg.breath ? plural(Object.keys(hg.joined).length + 1, "blob") + " breathing together" : plural(Math.min(12, n) + 1, "blob") + " here";
+  }
+  function hgLine(text, ms) {
+    var l = document.getElementById("hgline"); if (!l || !hg) return;
+    clearTimeout(hg.lineTimer); l.innerHTML = text;
+    if (ms) hg.lineTimer = setTimeout(function () { var x = document.getElementById("hgline"); if (x && !hg.breath) x.innerHTML = ""; }, ms);
+  }
+  function hgHop(el) {
+    if (!el) return;
+    if (REDUCED) { el.classList.add("metoo"); setTimeout(function () { el.classList.remove("metoo"); }, 1500); return; }
+    var svg = el.querySelector(".bsvg"); if (!svg) return;
+    svg.classList.remove("jump"); void svg.getBoundingClientRect(); svg.classList.add("jump");
+  }
+  function hgEvent(e) {
+    if (!hg) return;
+    var el = document.querySelector('.hg-b[data-k="' + e.anonId + '"]');
+    if (e.action === "wave") hgHop(el);
+    else if (e.action === "metoo" && e.target === hg.sess.me.anonId) {
+      var me = document.getElementById("hgme");
+      if (me) { me.classList.add("metoo"); setTimeout(function () { me.classList.remove("metoo"); }, 1500); }
+      hgLine("Someone said me too.", 4000);
+    } else if (e.action === "breathe" && !hg.breath) hgLine('<button class="opt hg-join" data-act="hgbreathe">Join the breath</button>', 15000);
+  }
+  function hgBreathe() {
+    if (!hg || hg.breath) return;
+    var t0 = Date.now(); hg.breath = { t0: t0 }; hg.joined = {};
+    var sync = function (el) { var svg = el && el.querySelector(".bsvg"); if (svg) svg.style.animationDelay = -((Date.now() - t0) / 1000).toFixed(2) + "s"; };
+    var me = document.getElementById("hgme"); if (me) { me.classList.add("breathing"); sync(me); }
+    hg.sess.breathe(function (id) {
+      if (!hg || !hg.breath) return;
+      hg.joined[id] = true;
+      var el = document.querySelector('.hg-b[data-k="' + id + '"]'); if (el) { el.classList.add("breathing"); sync(el); }
+      hgCount();
+    });
+    hgCount();
+    var last = "";
+    hg.cue = setInterval(function () {
+      var t = Date.now() - t0;
+      if (t >= 60000) return hgEndBreath();
+      var cue = t % 10000 < 4000 ? "Breathe in…" : "Breathe out…";
+      if (cue !== last) { last = cue; hgLine(cue); }
+    }, 250);
+  }
+  function hgEndBreath() {
+    clearInterval(hg.cue); hg.breath = null; hg.joined = {};
+    document.querySelectorAll(".hangout .breathing").forEach(function (el) { el.classList.remove("breathing"); });
+    hgCount(); hgLine("That was nice. Thanks for breathing with me.", 6000);
+  }
+  function hgStop() { if (!hg) return; hg.sess.leave(); clearInterval(hg.cue); clearTimeout(hg.lineTimer); hg = null; }
+
   // ---------- render ----------
   function render() {
     stopCare(); clearObTimers();
+    if (hg && route().name !== "hangout") hgStop();
     var r = route(), html;
     if (r.name === "intro") html = viewOnboarding(0);
     else if (/^step[1-4]$/.test(r.name)) html = viewOnboarding(+r.name.slice(4));
@@ -883,11 +1006,13 @@
     else if (r.name === "practice") html = viewPractice();
     else if (r.name === "learned" || r.name === "journey") html = viewLearned();
     else if (r.name === "know") html = viewKnow();
+    else if (r.name === "hangout") html = viewHangout();
     else html = viewHome();
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
     if (overlay && overlay.type === "after") html += viewAfter(overlay);
     if (overlay && overlay.type === "node") html += viewNode(overlay.id);
     if (overlay && overlay.type === "look") html += viewLook();
+    if (overlay && overlay.type === "hgintro") html += viewHgIntro();
     var hadSheet = !!app.querySelector(".sheet");
     app.innerHTML = html;
     var main = app.querySelector(".screen"); if (main) main.setAttribute("role", "main");
@@ -902,6 +1027,7 @@
     keepFocus = null;
     if (obDir) { var ob = app.querySelector(".ob"); if (ob) ob.classList.add("in-" + obDir); obDir = ""; }
     if (r.name === "intro") playOpening();
+    if (r.name === "hangout") hgStart();
     if (r.name === "step3") playCare();
     if (r.name === "care") startCare(r.arg);
     if (r.name === "home" && S.onboarded && !S.popupSeen && !overlay) {
@@ -941,7 +1067,18 @@
       S.look[k] = v; save();
       var sc0 = app.querySelector(".screen"), top0 = sc0 ? sc0.scrollTop : 0;
       render(); sc0 = app.querySelector(".screen"); if (sc0) sc0.scrollTop = top0;
-    } else if (act === "lookopen") { overlay = { type: "look" }; rerenderKeepScroll(); }
+    } else if (act === "hgwave") {
+      if (!hg || Date.now() - hg.lastWave < 5000) return;
+      hg.lastWave = Date.now(); hg.sess.send("wave"); hgHop(document.getElementById("hgme"));
+      el.setAttribute("aria-disabled", "true"); setTimeout(function () { el.removeAttribute("aria-disabled"); }, 5000);
+    } else if (act === "hgmetoo") {
+      if (!hg || Date.now() - (hg.metooAt[k] || 0) < 3000) return;
+      hg.metooAt[k] = Date.now(); hg.sess.send("metoo", k);
+      el.classList.add("metoo"); setTimeout(function () { el.classList.remove("metoo"); }, 1500);
+    } else if (act === "hgbreathe") { if (hg) { hg.sess.send("breathe"); hgBreathe(); } }
+    else if (act === "hgleave") { if (hg) hg.sess.send("leave"); hgStop(); go("#home"); }
+    else if (act === "hgintrook") { S.hangout.seenIntro = true; save(); overlay = null; render(); }
+    else if (act === "lookopen") { overlay = { type: "look" }; rerenderKeepScroll(); }
     else if (act === "storybtn") {
       var ns = nextStory(); if (ns) { overlay = { type: "popup", id: ns.id }; rerenderKeepScroll(); } else go("#stories");
     } else if (act === "read") {
