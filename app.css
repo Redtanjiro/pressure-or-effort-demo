@@ -445,3 +445,34 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .how-now b { display: block; font-size: 15px; color: var(--ink); }
 .how-n { flex: none; font-size: 76px; font-weight: 700; letter-spacing: -0.05em; line-height: .9; }
 .how-n span { font-size: 26px; font-weight: 400; letter-spacing: -0.02em; color: var(--smoke); }
+
+/* ---------- onboarding: the opening ---------- */
+.ob-open { position: relative; min-height: 100%; overflow: hidden; text-align: center; }
+.op-title { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; margin: 0;
+  transition: top .8s cubic-bezier(.2, .9, .3, 1), transform .8s cubic-bezier(.2, .9, .3, 1), opacity .5s ease; }
+.op-hello { font-size: 17px; font-weight: 500; letter-spacing: 0; }
+.op-word { font-size: 64px; font-weight: 700; font-style: italic; letter-spacing: -0.03em; line-height: 1.05; }
+.op-blob { position: absolute; left: 50%; top: 50%; width: 300px; margin-left: -150px; transform: translateY(-38%); opacity: 0;
+  transition: opacity .6s ease, transform .8s cubic-bezier(.2, .9, .3, 1); }
+.op-blob .bsvg { transition: transform .9s cubic-bezier(.34, 1.56, .64, 1); transform: translateY(120px); }
+.op-foot { position: absolute; left: 0; right: 0; bottom: max(24px, env(safe-area-inset-bottom)); opacity: 0; transform: translateY(12px); transition: opacity .6s ease .1s, transform .6s ease .1s; }
+.op-foot .body { font-size: 18px; color: var(--smoke); max-width: 320px; margin: 0 auto; }
+.op-foot .btn { margin-top: 24px; }
+.ob-open.f2 .op-title { top: 22%; }
+.ob-open.f2 .op-blob, .ob-open.f3 .op-blob { opacity: 1; }
+.ob-open.f2 .op-blob .bsvg, .ob-open.f3 .op-blob .bsvg { transform: none; }
+.ob-open.f3 .op-title { top: 22%; opacity: 0; }
+.ob-open.f3 .op-blob { transform: translateY(-62%); }
+.ob-open.f3 .op-foot { opacity: 1; transform: none; }
+.ob-open.f1 .op-foot, .ob-open.f2 .op-foot { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .op-title, .op-blob, .op-blob .bsvg, .op-foot { transition: none !important; } }
+/* ---------- onboarding: feature screens ---------- */
+.ob-feat { text-align: center; }
+.ob-feat .ob-blob { min-height: 280px; }
+.ob-feat h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; }
+.ob-feat .body { font-size: 17px; color: var(--smoke); max-width: 330px; margin: 10px auto 0; }
+.ob-text { transition: opacity .15s ease; }
+.ob-text.swap #obh, .ob-text.swap #obbody, .ob-text.swap .vend { opacity: 0; }
+#obh, #obbody, .vend { transition: opacity .15s ease; }
+.obcard { margin-top: 16px; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 16px; font-size: 16px; line-height: 1.45; color: var(--ink); }
+.ob-feat .ticks { text-align: left; }

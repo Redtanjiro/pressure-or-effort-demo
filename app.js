@@ -287,7 +287,8 @@
   function go(h) { if (location.hash === h) render(); else location.hash = h; }
   function route() {
     var h = (location.hash || "").slice(1);
-    if (!S.onboarded && !/^(intro|step[1-6])$/.test(h)) return { name: "intro" };
+    if (/^step[56]$/.test(h)) h = "step4";
+    if (!S.onboarded && !/^(intro|step[1-4])$/.test(h)) return { name: "intro" };
     if (!h) return { name: "home" };
     var p = h.split("/");
     return { name: p[0], arg: p.slice(1).join("/") };
@@ -301,36 +302,104 @@
   }
 
   // ---------- onboarding ----------
+  // the example story used through onboarding, built from the framework with fixed factors
+  // (afternoon, still, most of an hour, started racing, something due, behind, quite flat)
+  var OB_F = { moving: false, long: true, high: true };
+  var OB_HEAD = "This afternoon. " + bodySentence(OB_F);
+  var OB_OPEN = dueS(null) + " " + topS(null);
+  var OB_DONE = dueS(true) + " " + topS(true) + " It left me " + levelWord(5) + ".";
+  var OB_GUESS = openAppraisal({ stage: 3, due: true, onTop: false, flat: 5 });
   var OB = [
-    { h: "BLOB", body: "Blob is well… A blob,<br>blob doesn’t know how to feel because well… its a blob.", btn: "Would you like to help blob?", blob: { k: 1, state: "wait" }, intro: true },
-    { h: "Blob feels things,<br>but it doesn’t know<br>how to <em>feel</em> them.", sub: "But you do…", btn: "But you do…", blob: { k: 1, state: "bounce", acc: "brain" }, big: true },
-    { h: "Blob can however<br>tell <em>you</em> a story", body: "Each evening, Blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.", btn: "Next", blob: { k: 1, state: "wait", acc: "read" } },
-    { h: "You might be able to<br>help blob understand.", body: "You fill in what was going on for Blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat", acc: "puzzled" } },
-    { h: "You can teach it to learn", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it’s right or wrong.",
-      quote: "“This afternoon. I'd been sitting still for most of an hour when my heart started racing. Something was due, and I was behind. I think it left me quite flat.”", btn: "Next", blob: { k: 1, state: "work", acc: "write" } },
-    { h: "It asks for a little care", body: "When it’s flattened, Blob might ask you to breathe slowly with it, or rest. As your heart settles, you’ll see it puff back up.",
-      ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Next", blob: { k: 1, state: "puff", acc: "blush" } },
-    { h: "Choose your blob", btn: "Meet my blob", blob: { k: 1, state: "wait" }, choose: true }
+    { id: "intro", body: "Blob feels things, but it doesn’t know what they mean. You do.", btn: "Help Blob" },
+    { id: "step1", beats: [
+        { h: "Blob tells you its day", body: "Each evening, it tells you about the moments its heart raced.", tail: OB_OPEN, blob: { k: 1, state: "wait", acc: "read" } },
+        { h: "You fill in the gaps", body: "Blob knows what its body did, not why. Tell it what was going on, and how flat it got.", tail: OB_DONE, blob: { k: 5, state: "flat", acc: "puzzled" } }],
+      btn: "Next" },
+    { id: "step2", h: "Blob learns from you", body: "After a few stories, it starts guessing about itself. You just tell it when it’s right.", tail: OB_GUESS,
+      blob: { k: 1, state: "work", pal: "glow", acc: "write" }, btn: "Next" },
+    { id: "step3", h: "Blob asks for a little care", body: "When it’s flattened, Blob might ask you to breathe with it. As your heart settles, you’ll see it puff back up.",
+      ticks: ["Only your day can flatten it, never being busy.", "No streaks, no scores.", "You can always say “not now”."], btn: "Next" },
+    { id: "step4", h: "Make Blob yours", choose: true, btn: "Meet Blob" }
   ];
+  var obBeat = 1, introSeen = false, obTimers = [];
+  function obArt(b, extra) {
+    return blob(b.k, Object.assign({ f: 3.1, state: b.state, acc: b.acc, pal: b.pal, loop: true, box: 300, label: "Blob, " + levelLabel(b.k) }, extra || {}));
+  }
   function viewOnboarding(i) {
     var o = OB[i];
-    var head = i === 0 ? '<div class="ob-head"></div>' :
-      '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" role="img" aria-label="Step ' + i + ' of 6">' +
-      [1, 2, 3, 4, 5, 6].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
-    var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, acc: o.blob.acc, loop: true, box: 330, label: "Blob" }) + "</div>";
+    if (i === 0) {
+      // the opening: three frames on one screen, played by playOpening()
+      return '<div class="screen"><div class="ob ob-open' + (introSeen || REDUCED ? " f3" : " f1") + '">' +
+        '<h1 class="op-title" aria-label="Hello, meet Blob"><span class="op-hello" aria-hidden="true">Hello, meet</span><span class="op-word" aria-hidden="true">BLOB</span></h1>' +
+        '<div class="op-blob">' + blob(1, { f: 3.1, state: "wait", loop: true, box: 300, label: "Blob" }) + "</div>" +
+        '<div class="op-foot"><p class="body">' + o.body + '</p><button class="btn" data-act="ob" data-v="0">' + o.btn + "</button></div></div></div>";
+    }
+    var head = '<div class="ob-head"><button class="back" data-act="obback" aria-label="Back">' + ICON.back + '</button><div class="pdots" role="img" aria-label="Step ' + i + ' of 4">' +
+      [1, 2, 3, 4].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
     var btn = '<button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button>";
     if (o.choose) return '<div class="screen"><div class="ob ob-center ob-choose">' + head +
-      '<div class="ob-blob" id="lookblob">' + blob(1, { f: 3.3, state: "wait", loop: true, box: 330, label: "Blob, " + lookColor()[1] }) + "</div>" +
+      '<div class="ob-blob" id="lookblob">' + blob(1, { f: 3.1, state: "wait", loop: true, box: 300, label: "Blob, " + lookColor()[1] }) + "</div>" +
       "<h1>" + o.h + "</h1>" + lookPicker() + btn + "</div></div>";
-    if (o.intro) return '<div class="screen"><div class="ob ob-intro">' + head +
-      (o.kicker ? '<p class="kicker">' + o.kicker + "</p>" : "") + '<h1 class="wordmark">' + o.h + "</h1>" + art +
-      '<p class="body">' + o.body + "</p>" + btn + "</div></div>";
-    return '<div class="screen"><div class="ob ob-center' + (o.big ? " ob-big" : "") + '">' + head + art + "<h1>" + o.h + "</h1>" +
-      (o.sub ? '<p class="sub">' + o.sub + "</p>" : "") +
-      (o.body ? '<p class="body">' + o.body + "</p>" : "") +
-      (o.quote ? '<p class="quote">' + o.quote + "</p>" : "") +
-      (o.ticks ? '<ul class="ticks">' + o.ticks.map(function (t) { return "<li>" + ICON.tick + "<span>" + t + "</span></li>"; }).join("") + "</ul>" : "") +
-      btn + "</div></div>";
+    var t = o.beats ? o.beats[obBeat - 1] : o;
+    var art = i === 3 ? obArt({ k: 5, state: "flat", pal: "sage" }) : obArt(t.blob);
+    return '<div class="screen"><div class="ob ob-feat">' + head + '<div class="ob-blob" id="obblob">' + art + "</div>" +
+      '<div class="ob-text" aria-live="polite"><h1 id="obh">' + t.h + '</h1><p class="body" id="obbody">' + t.body + "</p>" +
+      (t.tail ? '<p class="obcard">' + esc(OB_HEAD) + ' <span class="vend" id="obtail">' + esc(t.tail) + "</span></p>" : "") +
+      (o.ticks ? '<ul class="ticks">' + o.ticks.map(function (x) { return "<li>" + ICON.tick + "<span>" + x + "</span></li>"; }).join("") + "</ul>" : "") +
+      "</div>" + btn + "</div></div>";
+  }
+  function clearObTimers() { obTimers.forEach(clearTimeout); obTimers = []; }
+  function later(fn, ms) { obTimers.push(setTimeout(fn, ms)); }
+  function playOpening() {
+    var op = app.querySelector(".ob-open"); if (!op) return;
+    var focusBtn = function () { var b = op.querySelector(".op-foot .btn"); if (b) b.focus(); };
+    if (op.classList.contains("f3")) { introSeen = true; return; }
+    later(function () { op.classList.remove("f1"); op.classList.add("f2"); }, 900);
+    later(function () { op.classList.remove("f2"); op.classList.add("f3"); introSeen = true; focusBtn(); }, 1800);
+    op.addEventListener("pointerdown", function skip() {
+      if (op.classList.contains("f3")) return;
+      clearObTimers(); op.classList.remove("f1", "f2"); op.classList.add("f3"); introSeen = true; focusBtn();
+    });
+  }
+  // change level by squashing the new shape in from the old one, so Blob seems to sag or puff
+  function morphBlob(host, fromK, toK, html) {
+    host.innerHTML = html;
+    var svg = host.querySelector(".bsvg"); if (!svg || REDUCED || !svg.animate) return;
+    var a = dims(fromK), b = dims(toK);
+    svg.style.transformOrigin = "50% 100%";
+    svg.animate([{ transform: "scale(" + (a.w / b.w).toFixed(3) + "," + (a.h / b.h).toFixed(3) + ")" }, { transform: "scale(1.04,.96)", offset: 0.75 }, { transform: "none" }],
+      { duration: 900, easing: "cubic-bezier(.3,.7,.3,1)" });
+  }
+  function setBeat(n) {
+    var t = OB[1].beats[n - 1], from = OB[1].beats[obBeat - 1].blob.k;
+    obBeat = n;
+    var txt = app.querySelector(".ob-text"), tail = document.getElementById("obtail");
+    if (txt) txt.classList.add("swap");
+    setTimeout(function () {
+      document.getElementById("obh").innerHTML = t.h; document.getElementById("obbody").innerHTML = t.body; tail.textContent = t.tail;
+      txt.classList.remove("swap");
+    }, REDUCED ? 0 : 150);
+    morphBlob(document.getElementById("obblob"), from, t.blob.k, obArt(t.blob));
+  }
+  // step 3: Blob arrives flattened, puffs back up once, then idles with a blush
+  function playCare() {
+    var host = document.getElementById("obblob"); if (!host) return;
+    var done = function () { host.innerHTML = obArt({ k: 1, state: "wait", pal: "sage", acc: "blush" }); };
+    if (REDUCED) return done();
+    later(function () { morphBlob(host, 5, 1, blob(1, { f: 3.1, state: "puff", pal: "sage", box: 300, label: "Blob, " + levelLabel(1) })); }, 700);
+    later(done, 2300);
+  }
+  function obNext(i) {
+    if (i === 1 && obBeat === 1) return setBeat(2);
+    if (i === 4) { S.onboarded = true; save(); return go("#home"); }
+    if (i === 0) obBeat = 1;
+    obDir = "next"; go("#step" + (i + 1));
+  }
+  function obPrev(i) {
+    if (i === 1 && obBeat === 2) return setBeat(1);
+    if (i === 0) return;
+    if (i === 2) obBeat = 2;
+    obDir = "prev"; go(i === 1 ? "#intro" : "#step" + (i - 1));
   }
 
   function lookPicker() {
@@ -804,10 +873,10 @@
 
   // ---------- render ----------
   function render() {
-    stopCare();
+    stopCare(); clearObTimers();
     var r = route(), html;
     if (r.name === "intro") html = viewOnboarding(0);
-    else if (/^step[1-6]$/.test(r.name)) html = viewOnboarding(+r.name.slice(4));
+    else if (/^step[1-4]$/.test(r.name)) html = viewOnboarding(+r.name.slice(4));
     else if (r.name === "story") html = viewStory(r.arg);
     else if (r.name === "care") html = viewCare(r.arg);
     else if (r.name === "stories") html = viewStories();
@@ -832,6 +901,8 @@
     }
     keepFocus = null;
     if (obDir) { var ob = app.querySelector(".ob"); if (ob) ob.classList.add("in-" + obDir); obDir = ""; }
+    if (r.name === "intro") playOpening();
+    if (r.name === "step3") playCare();
     if (r.name === "care") startCare(r.arg);
     if (r.name === "home" && S.onboarded && !S.popupSeen && !overlay) {
       var n = nextStory();
@@ -864,10 +935,9 @@
     if (go_) { overlay = null; draft = {}; go(go_); return; }
     var act = el.getAttribute("data-act"), v = el.getAttribute("data-v"), k = el.getAttribute("data-k");
     var r = route();
-    if (act === "ob") {
-      var i = +v;
-      if (i === 6) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1));
-    } else if (act === "look") {
+    if (act === "ob") obNext(+v);
+    else if (act === "obback") obPrev(obIndex());
+    else if (act === "look") {
       S.look[k] = v; save();
       var sc0 = app.querySelector(".screen"), top0 = sc0 ? sc0.scrollTop : 0;
       render(); sc0 = app.querySelector(".screen"); if (sc0) sc0.scrollTop = top0;
@@ -918,7 +988,7 @@
   });
   // swipe through the intro: left for next, right for back (touch, or a mouse drag on a laptop)
   var swipe = null, obDir = "";
-  function obIndex() { var n = route().name; return n === "intro" ? 0 : /^step[1-6]$/.test(n) ? +n.slice(4) : -1; }
+  function obIndex() { var n = route().name; return n === "intro" ? 0 : /^step[1-4]$/.test(n) ? +n.slice(4) : -1; }
   app.addEventListener("pointerdown", function (e) {
     if (obIndex() < 0 || e.target.closest("button")) return;
     swipe = { x: e.clientX, y: e.clientY };
@@ -929,8 +999,7 @@
     swipe = null;
     if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     var i = obIndex();
-    if (dx < 0) { obDir = "next"; if (i === 6) { S.onboarded = true; save(); go("#home"); } else go("#step" + (i + 1)); }
-    else if (i > 0) { obDir = "prev"; go(i === 1 ? "#intro" : "#step" + (i - 1)); }
+    if (dx < 0) obNext(i); else obPrev(i);
   });
   window.addEventListener("pointercancel", function () { swipe = null; });
 
