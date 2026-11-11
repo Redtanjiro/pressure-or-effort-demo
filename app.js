@@ -388,7 +388,9 @@
     var h = '<div class="screen with-tabs home"><div class="home-head">' + storyBtn() + '<h1 class="title">Blob\'s day</h1><p class="date">' + longDate(TODAY) + "</p></div>" +
       '<div class="home-blob">' + blob(lv, { f: 2.6, box: 300, label: "Blob, " + levelLabel(lv) }) +
         '<button class="custombtn" data-act="lookopen" aria-label="Change Blob\'s look">' + ICON.shirt + "</button></div>" +
-      '<section class="card howcard"><p class="caption">How is blob doing today</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small">' + cap(levelWord(lv)) + ". " + LEVEL_LINE[lv] + "</p></section>" +
+      '<section class="card howcard"><div class="how-l"><p class="caption">How is Blob doing today</p><div class="how-now">' +
+        blob(lv, { f: 0.95, box: 64, boxH: 64, noSphere: true }) + '<p><b>' + cap(levelWord(lv)) + "</b>" + LEVEL_LINE[lv] + "</p></div></div>" +
+        '<p class="how-n" aria-label="' + cap(levelLabel(lv)) + '">' + lv + "<span> of 7</span></p></section>" +
       '<div class="hometiles">' +
         '<a class="htile pal-glow" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
         '<a class="htile pal-' + S.look.bg + '" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>" +

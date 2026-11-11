@@ -435,3 +435,13 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .custombtn:active { transform: scale(.94); }
 .looksheet h2 { margin-top: 0; }
 .looksheet .picker { margin-top: 8px; }
+
+/* how is Blob doing today */
+.howcard { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; }
+.how-l { min-width: 0; }
+.how-now { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.how-now .bstage { flex: none; }
+.how-now p { font-size: 13px; line-height: 1.35; color: var(--smoke); }
+.how-now b { display: block; font-size: 15px; color: var(--ink); }
+.how-n { flex: none; font-size: 76px; font-weight: 700; letter-spacing: -0.05em; line-height: .9; }
+.how-n span { font-size: 26px; font-weight: 400; letter-spacing: -0.02em; color: var(--smoke); }
