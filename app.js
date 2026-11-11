@@ -48,7 +48,18 @@
   // ---------- helpers ----------
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function mean(a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; }
-  function f1(x) { return (Math.round(x * 10) / 10).toFixed(1); }
+  // flatness is always a whole level, said as a word plus "k of 7"
+  var LEVEL_WORDS = ["not flat at all", "barely flat", "a little flat", "halfway flat", "quite flat", "very flat", "completely flat"];
+  function level(avg) { return Math.min(7, Math.max(1, Math.round(avg))); }
+  function levelWord(avg) { return LEVEL_WORDS[level(avg) - 1]; }
+  function levelLabel(avg) { return levelWord(avg) + " · " + level(avg) + " of 7"; }
+  function cap(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many || one + "s"); }
+  // static illustrations in illo/ (swap the files to restyle them)
+  var ACTIVITY_ILLO = { "Exercising": "exercising", "Walking somewhere": "walking-somewhere", "On its feet working": "on-its-feet-working", "Sitting working": "sitting-working", "Sitting relaxing": "sitting-relaxing" };
+  function illo(name, size, alt) {
+    return '<img class="illo" src="illo/blob-' + name + '.svg" width="' + size + '" height="' + size + '" alt="' + esc(alt || "") + '"' + (alt ? "" : ' aria-hidden="true"') + ">";
+  }
   function asDate(s) { var p = s.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
   var WD = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   var MO = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -297,7 +308,7 @@
     return flats.length ? Math.max(1, Math.round(mean(flats))) : 2;
   }
   function careAfter(m) { var c = S.care[m.id], a = ans(m); return c && c.settled ? Math.max(1, a.flat - 2) : a.flat; }
-  var LEVEL_LINE = { 1: "Round and bouncing today.", 2: "Mostly bouncing along today.", 3: "A little squashed today.", 4: "Fairly flattened today.", 5: "Quite flat today.", 6: "Very flat today.", 7: "Completely flattened today." };
+  var LEVEL_LINE = { 1: "Round and bouncing today.", 2: "Mostly bouncing along today.", 3: "A little squashed today.", 4: "Halfway flattened today.", 5: "Quite flat today.", 6: "Very flat today.", 7: "Completely flattened today." };
   function homeChart(d) {
     var W = 320, H = 150, L = 6, R = 6, T = 14, B = 22, from = 360, to = 1080;
     var vals = d.series.filter(function (p) { return p[0] >= from && p[0] <= NOW; }).map(function (p) { return p[1]; });
@@ -332,8 +343,8 @@
   function viewHome() {
     var d = todayDay(), lv = todayLevel(), n = d.moments.length;
     var h = '<div class="screen with-tabs"><p class="date">' + longDate(TODAY) + '</p><h1 class="title">The blob\'s day</h1>' +
-      '<section class="card blobcard">' + blob(lv, { f: 1.9, box: 160, label: "The blob, " + lv + " of 7 flat" }) +
-      '<div><p class="caption" style="font-weight:500">How flat it is</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small" style="margin:8px 0 12px">' + LEVEL_LINE[lv] + "</p>" +
+      '<section class="card blobcard">' + blob(lv, { f: 1.9, box: 160, label: "The blob, " + levelLabel(lv) }) +
+      '<div><p class="caption" style="font-weight:500">How flat it is</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small" style="margin:8px 0 12px"><b>' + cap(levelWord(lv)) + "</b>. " + LEVEL_LINE[lv] + "</p>" +
       '<span class="chip"><i class="dot" style="background:#5f2b89"></i>' + n + " moment" + (n === 1 ? "" : "s") + " today</span></div></section>" +
       '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
       '<div class="stats"><div class="stat"><b>' + Math.round(d.rhr) + '</b><span>resting bpm</span></div><div class="stat"><b>' + d.steps.toLocaleString("en-AU") + '</b><span>steps</span></div><div class="stat"><b>' + n + "</b><span>moments</span></div></div>";
@@ -344,9 +355,8 @@
   // ---------- popup ----------
   function nextStory(d) { return storiesOf(d || todayDay()).filter(function (m) { return !ans(m); })[0]; }
   function viewPopup(m) {
-    var g = selfGuess(m), lv = g.stage >= 2 ? g.flat : 4;
     return '<div class="backdrop" data-act="close"></div><div class="sheet" role="dialog" aria-label="The blob has a story"><div class="grab"></div>' +
-      '<div style="display:flex;justify-content:center">' + blob(lv, { f: 1.6, pal: "dusk", box: 170, boxH: 150 }) + "</div>" +
+      '<div class="illo-hero">' + illo("heart-racing", 120) + "</div>" +
       '<p class="meta">' + ampm(m.peakMin) + " · " + (MOVING[m.watch] ? "On the move" : "Sitting still") + "</p><h2>The blob has a story</h2>" +
       '<p class="vig">' + esc(vignette(m)) + "</p>" +
       '<div class="chips"><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div>" +
@@ -368,17 +378,17 @@
     if (!m) return viewHome();
     var d = m.day, list = storiesOf(d), i = list.indexOf(m), dr = draftFor(m), g = dr.guess;
     var lv = dr.flat || (g.stage >= 2 ? g.flat : 4);
-    var opt = function (key, v, label) { return '<button class="opt" role="radio" aria-checked="' + (dr[key] === v) + '" data-act="d" data-k="' + key + '" data-v="' + esc(JSON.stringify(v)) + '">' + label + "</button>"; };
+    var opt = function (key, v, label, icon) { return '<button class="opt' + (icon ? " with-illo" : "") + '" role="radio" aria-checked="' + (dr[key] === v) + '" data-act="d" data-k="' + key + '" data-v="' + esc(JSON.stringify(v)) + '">' + (icon ? illo(icon, 30) : "") + label + "</button>"; };
     var h = '<div class="screen"><div class="dhead"><button class="back" data-act="storyback" aria-label="Not now">' + ICON.back + "</button>" +
       '<div class="pdots">' + list.map(function (_, j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + '</div><span class="count">' + (i + 1) + " of " + list.length + "</span></div>" +
-      '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + lv + " of 7 flat" }) + "</div>" +
+      '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + levelLabel(lv) }) + "</div>" +
       '<div class="storycard"><p class="vig">' + esc(vignette(m)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + '</span><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div></div>" +
       '<div class="q"><h3>What was I doing?</h3><p class="help">My watch thinks I was ' + VOICE[m.watch] + '.</p><div class="opts" role="radiogroup" aria-label="What was I doing?">' +
-      ACTS.map(function (a) { return opt("activity", a, a); }).join("") + "</div></div>" +
-      '<div class="q"><h3>Was something due for me?</h3><div class="toggles" role="radiogroup" aria-label="Was something due for me?">' + opt("due", true, "Yes") + opt("due", false, "No") + "</div></div>" +
+      ACTS.map(function (a) { return opt("activity", a, a, ACTIVITY_ILLO[a]); }).join("") + "</div></div>" +
+      '<div class="q"><div class="q-illo">' + illo("something-due", 56) + '<h3>Was something due for me?</h3></div><div class="toggles" role="radiogroup" aria-label="Was something due for me?">' + opt("due", true, "Yes") + opt("due", false, "No") + "</div></div>" +
       '<div class="q"><h3>Was I on top of things?</h3><div class="toggles" role="radiogroup" aria-label="Was I on top of things?">' + opt("onTop", true, "Yes") + opt("onTop", false, "Not really") + "</div></div>" +
       '<div class="q"><h3>How flat did I get?</h3><div class="flats" role="radiogroup" aria-label="How flat did I get?">' +
-      [1, 2, 3, 4, 5, 6, 7].map(function (k) { return '<button class="ftile" role="radio" aria-checked="' + (dr.flat === k) + '" aria-label="' + k + ' of 7" data-act="d" data-k="flat" data-v="' + k + '">' + mini(k) + "<span>" + k + "</span></button>"; }).join("") +
+      [1, 2, 3, 4, 5, 6, 7].map(function (k) { return '<button class="ftile" role="radio" aria-checked="' + (dr.flat === k) + '" aria-label="' + cap(levelLabel(k)) + '" data-act="d" data-k="flat" data-v="' + k + '">' + mini(k) + "<span>" + k + "</span></button>"; }).join("") +
       '</div><div class="fends"><span>Not flat at all</span><span>Completely flat</span></div></div>' +
       '<div class="actions"><button class="btn" data-act="savestory"' + (dr.flat ? "" : " disabled style=\"opacity:.45\"") + '>Save this story</button><button class="textbtn" data-act="cant">I can\'t remember</button></div></div>';
     return h;
@@ -396,7 +406,9 @@
   var CARE_ASK = { Pressure: "I think I need to breathe.", Overload: "Can we slow down first?", Effort: "I just need to rest.", Neither: "I'm fine, actually. Not every rise is stress." };
   function viewAfter(o) {
     var m = byId[o.id], a = ans(m), k = kind(!!MOVING[a.activity], a.flat);
-    var showBlob = o.reflect ? blob(a.flat >= 4 ? 3 : 1, { f: 1.6, state: "work", box: 170, boxH: 150 }) : blob(a.flat, { f: 1.6, box: 170, boxH: 150 });
+    var CARE_ILLO = { Pressure: "breathing", Overload: "breathing", Effort: "water-and-rest" };
+    var showBlob = o.reflect ? '<div class="illo-hero">' + illo("learning", 120) + "</div>" :
+      CARE_ILLO[k] ? '<div class="illo-hero">' + illo(CARE_ILLO[k], 120) + "</div>" : blob(a.flat, { f: 1.6, box: 170, boxH: 150 });
     var h = '<div class="backdrop"></div><div class="sheet" role="dialog" aria-label="The blob"><div class="grab"></div><div style="display:flex;justify-content:center">' + showBlob + "</div>";
     if (o.reflect) h += '<p class="vig" style="font-weight:500">' + esc(o.reflect) + "</p>";
     h += '<h2 style="margin-top:14px">' + CARE_ASK[k] + "</h2><div style=\"height:16px\"></div>";
@@ -463,11 +475,13 @@
     var a = ans(m);
     if (!a) return '<span class="status wait">Waiting</span>';
     if (a.cantRemember) return '<span class="status">Can\'t remember</span>';
-    return '<span class="status">' + a.flat + " of 7</span>";
+    return "";
   }
   function row(m) {
     var a = ans(m);
-    return '<li><button class="row" data-go="#story/' + m.id + '"><span class="mini">' + (a && a.flat ? mini(a.flat) : mini(1)) + '</span><span class="grow"><b>' + ampm(m.peakMin) + "</b><span>" + esc(activityOf(m)) + " · +" + m.lift + " bpm</span></span>" + statusOf(m) + "</button></li>";
+    var done = a && !a.cantRemember && a.flat;
+    return '<li><button class="row" data-go="#story/' + m.id + '"><span class="tile">' + illo(ACTIVITY_ILLO[activityOf(m)], 48) + '</span><span class="grow"><b>' + ampm(m.peakMin) + "</b><span>" + esc(activityOf(m)) + " · +" + m.lift + " bpm</span>" +
+      (done ? '<span class="lvl">' + cap(levelLabel(a.flat)) + "</span>" : "") + "</span>" + statusOf(m) + "</button></li>";
   }
   function viewStories() {
     var h = '<div class="screen with-tabs"><p class="date">Its stories</p><h1 class="title">Journal</h1>';
@@ -480,47 +494,87 @@
   }
 
   // ---------- learned tab ----------
-  function links() {
+  function wholeOf(d) {
+    var f = d.moments.filter(answered).map(function (m) { return ans(m).flat; });
+    return d.whole != null ? d.whole : f.length ? Math.round(mean(f)) : null;
+  }
+  // each pattern states its finding, flips with the data, and shows the evidence it rests on
+  function patterns() {
+    var nDays = DAYS.filter(function (d) { return wholeOf(d) != null; }).length;
+    var conf = function (ok, small) { return nDays < 6 || !ok ? "Needs more days" : small ? "Not sure yet" : "Starting to see it"; };
+    var P = [];
+
     var still = [], moving = [];
     ALL.forEach(function (m) { if (answered(m)) (isMoving(m) ? moving : still).push(ans(m).flat); });
-    var whole = function (d) {
-      var f = d.moments.filter(answered).map(function (m) { return ans(m).flat; });
-      return d.whole != null ? d.whole : f.length ? Math.round(mean(f)) : null;
-    };
-    var hi = [], lo = [];
-    DAYS.forEach(function (d) { var w = whole(d); if (w == null) return; (d.steps >= 10000 ? hi : lo).push(w); });
+    var aS = mean(still), aM = mean(moving), d1 = aS - aM, c1 = conf(still.length && moving.length, Math.abs(d1) < 1);
+    var tS = { illo: "sitting-working", label: "Sitting still", sub: cap(levelLabel(aS)) }, tM = { illo: "walking-somewhere", label: "Moving", sub: cap(levelLabel(aM)) };
+    P.push(c1 !== "Starting to see it" ? { id: "still", conf: c1, icon: "sitting-working",
+      title: "I can't tell yet whether sitting still or moving flattens me more",
+      body: c1 === "Needs more days" ? "I need stories from a few more days, with some still moments and some moving ones." : "So far, sitting still and moving leave me about as flat as each other. I'll keep watching." } :
+      d1 > 0 ? { id: "still", conf: c1, title: "Sitting still flattens me more than moving", tiles: [tS, tM],
+        body: "When my heart raced while I was sitting still, I got about " + levelWord(aS) + ". When it raced while I was moving, I was " + levelWord(aM) + ".",
+        evidence: "Based on " + plural(still.length, "still moment") + " and " + plural(moving.length, "moving one") + ".",
+        so: "Before a long sit at the desk, let's move for 10 minutes first." } :
+      { id: "still", conf: c1, title: "Moving flattens me more than sitting still", tiles: [tM, tS],
+        body: "When my heart raced while I was moving, I got about " + levelWord(aM) + ". When it raced while I was sitting still, I was " + levelWord(aS) + ".",
+        evidence: "Based on " + plural(moving.length, "moving moment") + " and " + plural(still.length, "still one") + ".",
+        so: "After a big burst of moving, let's give myself a proper rest." });
+
+    var busy = [], quiet = [];
+    DAYS.forEach(function (d) { var w = wholeOf(d); if (w != null) (d.steps >= 10000 ? busy : quiet).push(w); });
+    var aB = mean(busy), aQ = mean(quiet), d2 = aQ - aB, c2 = conf(busy.length && quiet.length, Math.abs(d2) < 0.8);
+    var tB = { illo: "busy-day", label: "10,000+ steps", sub: cap(levelLabel(aB)) }, tQ = { illo: "quiet-day", label: "Quieter days", sub: cap(levelLabel(aQ)) };
+    P.push(c2 !== "Starting to see it" ? { id: "steps", conf: c2, icon: "quiet-day",
+      title: "I can't tell yet whether busy days change how flat I end up",
+      body: c2 === "Needs more days" ? "I need a few more days, some busy and some quiet, before I can tell." : "Busy days and quieter days have left me about as flat as each other so far. I'll keep watching." } :
+      d2 > 0 ? { id: "steps", conf: c2, title: "Busy days leave me less flat", tiles: [tB, tQ],
+        body: "On days with lots of steps I ended up " + levelWord(aB) + ". On quieter days I was closer to " + levelWord(aQ) + ".",
+        evidence: "Based on " + plural(busy.length + quiet.length, "day") + ".", so: "On quiet days, let's get a walk in before the evening." } :
+      { id: "steps", conf: c2, title: "Busy days leave me flatter", tiles: [tB, tQ],
+        body: "On days with lots of steps I ended up " + levelWord(aB) + ". On quieter days I was only " + levelWord(aQ) + ".",
+        evidence: "Based on " + plural(busy.length + quiet.length, "day") + ".", so: "On big step days, let's keep the evening light." });
+
     var aH = [], aL = [];
-    for (var i = 0; i < DAYS.length - 1; i++) { var w = whole(DAYS[i]); if (w == null) continue; if (w >= 4) aH.push(DAYS[i + 1].rhr); else if (w <= 2) aL.push(DAYS[i + 1].rhr); }
-    var nDays = DAYS.filter(function (d) { return whole(d) != null; }).length;
-    var L = [
-      { id: "still", name: "Sitting still vs moving", diff: mean(still) - mean(moving), thr: 1, n: still.length && moving.length ? nDays : 0,
-        text: "When my heart raced while I sat still, I got to " + f1(mean(still)) + ". While moving, " + f1(mean(moving)) + ".",
-        idea: "Before a long sit at the desk, let's move for 10 minutes first." },
-      { id: "steps", name: "Steps and the whole day", diff: mean(lo) - mean(hi), thr: 0.8, n: hi.length && lo.length ? nDays : 0,
-        text: "On 10,000+ step days I ended up " + f1(mean(hi)) + ". On quieter days, " + f1(mean(lo)) + ".",
-        idea: "Quieter days leave me flatter. Let's get a walk in before the evening." },
-      { id: "rhr", name: "My resting heartbeat the next day", diff: mean(aH) - mean(aL), thr: 1.5, n: aH.length && aL.length ? nDays : 0,
-        text: "After heavy days my resting heartbeat was " + f1(mean(aH)) + " bpm. After light days, " + f1(mean(aL)) + " bpm.",
-        idea: "After a heavy day, let's start the next one gently." }
-    ];
-    L.forEach(function (l) { l.chip = l.n < 6 ? "Needs more days" : Math.abs(l.diff) < l.thr ? "Not sure yet" : "Starting to see it"; });
-    return L;
+    for (var i = 0; i < DAYS.length - 1; i++) { var w = wholeOf(DAYS[i]); if (w != null) (w >= 4 ? aH : aL).push(DAYS[i + 1].rhr); }
+    var d3 = mean(aH) - mean(aL), beats = Math.round(Math.abs(d3)), c3 = conf(aH.length && aL.length, Math.abs(d3) < 1.5);
+    var diffWords = beats === 0 ? "about the same as after light days" : "only about " + plural(beats, "beat") + " " + (d3 > 0 ? "higher" : "lower");
+    P.push(c3 !== "Starting to see it" ? { id: "rhr", conf: c3, icon: "sleeping",
+      title: "Heavy days don't seem to change my resting heartbeat",
+      body: c3 === "Needs more days" ? "I need a few more heavy and light days before I can tell if they change my resting heartbeat the next morning." :
+        "After heavy days my resting heartbeat was " + diffWords + ". That's small enough to be normal ups and downs, so I'll keep watching." } :
+      { id: "rhr", conf: c3, title: d3 > 0 ? "Heavy days raise my resting heartbeat the next day" : "My resting heartbeat is lower after heavy days",
+        tiles: [{ illo: "something-due", label: "After heavy days", sub: "About " + Math.round(mean(aH)) + " bpm resting" }, { illo: "sleeping", label: "After light days", sub: "About " + Math.round(mean(aL)) + " bpm resting" }],
+        body: "The morning after a heavy day, my resting heartbeat was about " + plural(beats, "beat") + " " + (d3 > 0 ? "higher" : "lower") + " than after a light one.",
+        evidence: "Based on " + plural(aH.length, "heavy day") + " and " + plural(aL.length, "lighter one") + ".",
+        so: d3 > 0 ? "After a heavy day, let's wind down early and start the next one gently." : "Heavy days don't seem to tire my heart out, so let's not worry about one." });
+    return P;
+  }
+  function meter(k) {
+    var g = "";
+    for (var j = 1; j <= 7; j++) g += '<circle cx="' + (4 + (j - 1) * 11) + '" cy="4" r="3.6" fill="' + (j <= k ? "#2d2c2b" : "#e2ded9") + '"/>';
+    return '<svg class="meter" width="78" height="8" viewBox="0 0 78 8" aria-hidden="true">' + g + "</svg>";
   }
   function viewLearned() {
-    var h = '<div class="screen with-tabs"><p class="date">What it has learned about itself</p><h1 class="title">Learned</h1>';
+    var h = '<div class="screen with-tabs learned"><h1 class="title" style="margin-top:44px">Learned</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>';
     var groups = ACTS.map(function (a) {
       var f = ALL.filter(function (m) { return answered(m) && activityOf(m) === a; }).map(function (m) { return ans(m).flat; });
       return { a: a, n: f.length, avg: mean(f) };
-    }).filter(function (g) { return g.n >= 2; });
-    h += '<section class="card"><h2 class="section">What I know about myself</h2>' + (groups.length ? groups.map(function (g) {
-      return '<div class="know"><span class="mini">' + mini(Math.round(g.avg)) + "</span><p><b>" + g.a + "</b><br><span class=\"smoke\">I usually get to about a " + Math.round(g.avg) + " · " + g.n + " moments</span></p></div>";
-    }).join("") : '<p class="small" style="margin-top:8px">Help me with a few stories and I\'ll start to know.</p>') + "</section>";
-    h += '<section class="card"><h2 class="section">Patterns I\'m noticing</h2>' + links().map(function (l) {
-      var on = l.chip === "Starting to see it" && l.diff > 0, v = S.sugg[l.id];
-      return '<div class="link"><div class="top"><b>' + l.name + '</b><span class="badge' + (l.chip === "Starting to see it" ? " yes" : "") + '">' + l.chip + "</span></div><p>" + esc(l.text) + "</p>" +
-        (on ? '<p style="color:var(--ink);font-weight:500;margin-top:10px">' + esc(l.idea) + '</p><div class="toggles" style="margin-top:10px" role="radiogroup" aria-label="' + esc(l.idea) + '">' +
-          '<button class="opt" role="radio" aria-checked="' + (v === "try") + '" data-act="sugg" data-k="' + l.id + '" data-v="try">Let\'s try it</button>' +
-          '<button class="opt" role="radio" aria-checked="' + (v === "no") + '" data-act="sugg" data-k="' + l.id + '" data-v="no">Not for us</button></div>' : "") + "</div>";
+    }).filter(function (g) { return g.n >= 1; });
+    h += '<section class="card"><h2 class="ltitle">What I know about myself</h2><p class="lsub">How flat I usually get doing each thing, from 1 (not flat) to 7 (completely flat).</p>' +
+      (groups.length ? '<ul class="acts">' + groups.map(function (g) {
+        return '<li><span class="tile t64">' + illo(ACTIVITY_ILLO[g.a], 60) + '</span><span class="grow"><b>' + g.a + '</b><span class="smoke">Usually ' + levelLabel(g.avg) + '</span>' +
+          '<span class="mline">' + meter(level(g.avg)) + '<span class="cnt">' + plural(g.n, "moment") + "</span></span></span></li>";
+      }).join("") + "</ul>" : '<p class="small" style="margin-top:12px">Help me with a few stories and I\'ll start to know.</p>') + "</section>";
+    h += '<section class="card"><h2 class="ltitle">Patterns I\'m noticing</h2><p class="lsub">The more stories you help me with, the surer I get.</p>' + patterns().map(function (p) {
+      var v = S.sugg[p.id], yes = p.conf === "Starting to see it";
+      var out = '<div class="pat"><span class="pill' + (yes ? " yes" : "") + '">' + p.conf + "</span>";
+      if (!p.tiles) return out + '<div class="pat-unsure">' + '<span class="tile t64">' + illo(p.icon, 60) + "</span><h3>" + p.title + "</h3></div>" +
+        '<p class="pbody">' + esc(p.body) + '</p><p class="pbody" style="margin-top:8px">No suggestion yet.</p></div>';
+      return out + "<h3>" + p.title + '</h3><div class="ptiles">' + p.tiles.map(function (t) {
+        return '<div class="ptile">' + illo(t.illo, 88) + "<b>" + t.label + "</b><span>" + t.sub + "</span></div>";
+      }).join("") + '</div><p class="pbody">' + esc(p.body) + '</p><p class="evid">' + esc(p.evidence) + '</p><p class="so"><b>So:</b> ' + esc(p.so) + "</p>" +
+        '<div class="pbtns" role="group" aria-label="' + esc(p.so) + '"><button class="pbtn" aria-pressed="' + (v === "try") + '" data-act="sugg" data-k="' + p.id + '" data-v="try">Let\'s try it</button>' +
+        '<button class="pbtn" aria-pressed="' + (v === "no") + '" data-act="sugg" data-k="' + p.id + '" data-v="no">Not for us</button></div></div>';
     }).join("") + "</section>";
     var helped = {};
     Object.keys(S.care).forEach(function (id) { var c = S.care[id]; (helped[c.kind] = helped[c.kind] || { n: 0, ok: 0, type: c.type }).n++; if (c.settled) helped[c.kind].ok++; });
@@ -528,8 +582,8 @@
       var x = helped[k], what = x.type === "rest" ? "A rest" : "Slow breathing";
       return x.ok ? what + " puffs me back up after " + k.toLowerCase() + "." : what + " hasn't puffed me back up after " + k.toLowerCase() + " yet.";
     });
-    h += '<section class="card"><h2 class="section">What helps me</h2>' + (lines.length ? lines.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
-      '<p class="small" style="margin-top:8px">When I ask for a little care, I\'ll remember what helped.</p>') + "</section>";
+    h += '<section class="card"><h2 class="ltitle">What helps me</h2>' + (lines.length ? lines.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
+      '<p class="lsub">When I ask for a little care, I\'ll remember what helped.</p>') + "</section>";
     return h + "</div>" + tabbar("learned");
   }
 
@@ -544,7 +598,7 @@
     Object.keys(kinds).forEach(function (k) {
       var list = kinds[k];
       h += '<div class="kindrow" style="margin-top:12px"><b>' + k + '</b><span class="smoke">' + list.length + "</span></div>" +
-        (list.length ? '<div class="collection">' + list.slice(-10).map(function (m) { return '<button data-go="#story/' + m.id + '" aria-label="' + esc(shortDate(m.date) + ", " + ampm(m.peakMin) + ", " + ans(m).flat + " of 7") + '">' + mini(ans(m).flat) + "</button>"; }).join("") + "</div>" : "");
+        (list.length ? '<div class="collection">' + list.slice(-10).map(function (m) { return '<button data-go="#story/' + m.id + '" aria-label="' + esc(shortDate(m.date) + ", " + ampm(m.peakMin) + ", " + levelLabel(ans(m).flat)) + '">' + mini(ans(m).flat) + "</button>"; }).join("") + "</div>" : "");
     });
     h += '</section><section class="card"><h2 class="section">My blob</h2><p class="small" style="margin-top:4px">Change its colour and background any time.</p>' + lookPicker() + '</section>' +
       '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
@@ -604,7 +658,7 @@
     } else if (act === "close") { overlay = null; render(); }
     else if (act === "d") {
       draft[k] = JSON.parse(v);
-      if (k === "flat") { var host = document.getElementById("dblob"); if (host) host.innerHTML = blob(draft.flat, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + draft.flat + " of 7 flat" }); }
+      if (k === "flat") { var host = document.getElementById("dblob"); if (host) host.innerHTML = blob(draft.flat, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + levelLabel(draft.flat) }); }
       var sc = app.querySelector(".screen"), top = sc.scrollTop, blobHtml = document.getElementById("dblob").innerHTML;
       app.innerHTML = viewStory(r.arg);
       document.getElementById("dblob").innerHTML = blobHtml;
