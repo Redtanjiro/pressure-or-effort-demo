@@ -95,8 +95,30 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .opt.with-illo .illo { margin: -6px 0; }
 .q-illo { display: flex; align-items: center; gap: 10px; }
 .q-illo .illo { margin: -8px 0 -8px -4px; }
+/* vignette cards */
+.vtile { position: relative; display: grid; place-items: center; flex: none; border-radius: 18px; background: var(--chip); }
+.badge-c { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: var(--card); box-shadow: 0 0 0 1.5px var(--card); }
+.badge-c.tr { top: -6px; right: -6px; }
+.badge-c.br { bottom: -6px; right: -6px; }
+.vcard { display: flex; align-items: flex-start; gap: 14px; width: 100%; text-align: left; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.vgroup > .vcard { border-bottom: 0; }
+.vgroup { border-bottom: 1px solid var(--line); }
+.vcard .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.vmeta { font-size: 13px; font-weight: 700; color: var(--smoke); }
+.vtext { font-size: 15px; line-height: 1.45; color: var(--ink); }
+.vline { font-size: 13px; font-style: italic; color: var(--smoke); }
+.helpme { align-self: flex-start; margin-top: 6px; height: 30px; padding: 0 14px; border-radius: 999px; background: var(--tab); font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; }
+.vblob { flex: none; margin-top: 4px; }
+.seeall { align-self: flex-start; margin-top: 6px; font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.rows.sub { margin: 0 0 8px; padding: 0 0 0 12px; border-left: 2px solid var(--line); }
+.rows.sub .vcard { padding: 12px 0; }
+.chip.ctx { margin: 2px 0 4px; }
+.anchor .anc-top { display: flex; gap: 14px; align-items: flex-start; }
+.anchor .aq { font-size: 14px; color: var(--smoke); margin: 14px 0 8px; }
+.anchor .aq b { color: var(--ink); }
+.ghost-btn { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
 /* learned */
-.learned .lede { font-size: 15px; color: var(--smoke); margin-top: 8px; }
+.lede { font-size: 15px; color: var(--smoke); margin-top: 8px; }
 .ltitle { font-size: 19px; font-weight: 700; letter-spacing: -0.03em; }
 .lsub { font-size: 13px; color: var(--smoke); margin-top: 4px; }
 .acts { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -347,3 +369,6 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
   .screen.with-tabs .title { font-size: 36px; }
   .ob { max-width: 460px; margin: 0 auto; }
 }
+/* the blob scale inside a practice-story card is narrower than the story screen */
+.anchor .flats { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.anchor .ftile .bstage { transform: scale(.8); transform-origin: 50% 100%; }

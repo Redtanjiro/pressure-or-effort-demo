@@ -7,7 +7,7 @@
 
   // ---------- state ----------
   var S = (function () {
-    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false, look: { color: "honey", bg: "calm" } };
+    var s = { onboarded: false, answers: {}, care: {}, sugg: {}, popupSeen: false, look: { color: "honey", bg: "calm" }, anchors: {} };
     try { var raw = localStorage.getItem(KEY); if (raw) { var v = JSON.parse(raw); for (var k in v) if (k in s) s[k] = v[k]; } } catch (e) { /* no storage */ }
     return s;
   })();
@@ -101,47 +101,78 @@
   function activityOf(m) { var a = ans(m); return (a && a.activity) || m.watch; }
   function isMoving(m) { return !!MOVING[activityOf(m)]; }
   function kind(moving, flat) { return moving ? (flat >= 4 ? "Overload" : "Effort") : (flat >= 4 ? "Pressure" : "Neither"); }
-  function part(min) { return min < 720 ? 0 : min < 900 ? 1 : min < 1080 ? 2 : 3; }
 
-  // the blob's guess about itself, from similar past moments (and the practice stories as a seed)
+  // ---------- vignettes: one template, fixed factors ----------
+  // grid factors: body (still / on the move) x demand (due?) x resources (behind?), the same 8 cells as the practice stories.
+  // descriptors: time of day, duration, intensity. Activity only picks the illustration.
+  function part(min) { return min < 720 ? 0 : min < 840 ? 1 : min < 1020 ? 2 : 3; }
+  function bodyMoving(m) { return m.steps10 > 250; }
+  function cellKey(moving, due, behind) { return (moving ? "m" : "s") + (due ? "d" : "n") + (behind ? "b" : "t"); }
+  var ANCHORS = D.practice.map(function (p) { return { key: cellKey(p.moving, p.due, p.behind), moving: !!p.moving, due: !!p.due, behind: !!p.behind, seed: p.flat }; })
+    .sort(function (a, b) { return a.moving - b.moving || b.due - a.due || b.behind - a.behind; });
+  function anchorFlat(key) {
+    if (S.anchors[key]) return S.anchors[key];
+    var c = ANCHORS.filter(function (x) { return x.key === key; })[0];
+    return c ? c.seed : 4;
+  }
+  function factors(m) {
+    var a = ans(m), done = !!(a && !a.cantRemember && a.flat);
+    return { time: part(m.peakMin), moving: bodyMoving(m), long: m.mins >= 40, high: m.bpm - m.day.rhr >= 45, cant: !!(a && a.cantRemember),
+      due: done ? !!a.due : null, behind: done ? !a.onTop : null, flat: done ? a.flat : null };
+  }
+  function episode(time, date) {
+    if (!date || date === TODAY) return ["This morning", "Around midday", "This afternoon", "This evening"][time];
+    var wd = WD[asDate(date).getDay()];
+    return "On " + wd + " " + ["morning", "around midday", "afternoon", "evening"][time];
+  }
+  function bodySentence(f) {
+    return "I'd been " + (f.moving ? "on the move" : "sitting still") + " for " + (f.long ? "most of an hour" : "a little while") + " when my heart " + (f.high ? "started racing" : "picked up") + ".";
+  }
+  function dueS(d) { return d === true ? "Something was due." : d === false ? "Nothing was due." : "Was something due?"; }
+  function topS(b) { return b === true ? "I was behind." : b === false ? "I was on top of things." : "Was I on top of things?"; }
+
+  // the blob fills the blanks itself as it learns, from answered moments with the same body and time of day
   function selfGuess(m) {
-    var mv = !!MOVING[m.watch];
-    var sim = ALL.filter(function (o) { return o.id !== m.id && answered(o) && isMoving(o) === mv && part(o.peakMin) === part(m.peakMin) && (o.date < m.date || (o.date === m.date && S.answers[o.id])); });
-    var flats = sim.map(function (o) { return ans(o).flat; });
-    var seed = D.practice.filter(function (p) { return !!p.moving === mv; }).map(function (p) { return p.flat; });
-    var n = sim.length, spread = n ? Math.max.apply(null, flats) - Math.min.apply(null, flats) : 0;
-    var g = Math.max(1, Math.min(7, Math.round(n ? (mean(flats) * n + mean(seed) * 0.5) / (n + 0.5) : mean(seed))));
-    var stage = n < 3 ? 1 : n >= 5 && spread <= 2 ? 3 : 2;
-    var dues = sim.filter(function (o) { return ans(o).due; }).length;
-    var last = sim.sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
-    return { stage: stage, flat: g, n: n, due: dues * 2 > n, last: last, kind: kind(mv, g) };
+    var mv = bodyMoving(m), pt = part(m.peakMin);
+    var sim = ALL.filter(function (o) { return o.id !== m.id && answered(o) && bodyMoving(o) === mv && part(o.peakMin) === pt && (o.date < m.date || (o.date === m.date && S.answers[o.id])); });
+    var n = sim.length, flats = sim.map(function (o) { return ans(o).flat; });
+    var maj = function (key) {
+      var yes = sim.filter(function (o) { return ans(o)[key] === true; }).length, no = sim.filter(function (o) { return ans(o)[key] === false; }).length;
+      return yes && yes >= 2 * no ? true : no && no >= 2 * yes ? false : null;
+    };
+    var due = n >= 3 ? maj("due") : null, onTop = n >= 3 ? maj("onTop") : null;
+    var seed = due != null && onTop != null ? anchorFlat(cellKey(mv, due, !onTop)) : mean(ANCHORS.filter(function (c) { return c.moving === mv; }).map(function (c) { return anchorFlat(c.key); }));
+    var flat = level(n ? (mean(flats) * n + seed * 0.5) / (n + 0.5) : seed);
+    var spread = n ? Math.max.apply(null, flats) - Math.min.apply(null, flats) : 0;
+    var stage = n < 3 ? 1 : n >= 5 && spread <= 2 && due != null && onTop != null ? 3 : 2;
+    return { stage: stage, flat: flat, n: n, due: due, onTop: onTop };
   }
-
-  function stillPhrase(mins) { return mins < 60 ? mins + " minutes" : "over an hour"; }
-  function stillFor(m) {
-    var s = m.day.series, n = 0;
-    for (var i = Math.floor(m.peakMin / 5) - 1; i >= 0 && n < 48; i--) { if (s[i][2] > 60) break; n++; }
-    return { mins: n * 5, since: (Math.floor(m.peakMin / 5) - n) * 5 };
+  function openAppraisal(g, dr) {
+    dr = dr || {};
+    if (g.stage === 3 && !dr.open) return (g.due ? "Something was due" : "Nothing was due") + ", and I was " + (g.onTop ? "on top of things" : "behind") + ". I think it left me " + levelWord(g.flat) + ".";
+    var d = dr.due != null ? dueS(dr.due) : g.stage >= 2 && g.due != null ? (g.due ? "I think something was due. Was it?" : "I think nothing was due. Am I right?") : dueS(null);
+    var t = dr.onTop != null ? topS(!dr.onTop) : g.stage >= 2 && g.onTop != null ? (g.onTop ? "I think I was on top of things. Was I?" : "I think I was behind. Was I?") : topS(null);
+    return d + " " + t + (dr.flat ? " It left me " + levelWord(dr.flat) + "." : "");
   }
-  function vignette(m) {
-    var g = selfGuess(m), act = m.watch, t = clock(m.peakMin);
-    if (g.stage === 3) {
-      var k = { Pressure: "my pressure", Overload: "my overload", Effort: "my effort", Neither: "just my heart" }[g.kind];
-      return t + ", " + VOICE[act] + ", heart racing. That's " + k + " again. I'm about a " + g.flat + ".";
-    }
-    if (g.stage === 2) {
-      var when = g.last ? "like last " + WD[asDate(g.last.date).getDay()] : "like before";
-      return "I was " + VOICE[act] + ", " + when + ". " + (g.due ? "I think something might have been due… " : "I don't think anything was due… ") +
-        (g.flat >= 4 ? "was I a bit flattened, maybe a " + g.flat + "?" : "was I mostly fine, maybe a " + g.flat + "?");
-    }
-    if (MOVING[act]) {
-      if (act === "Exercising") return "At " + t + " my heart was pounding. I was moving fast, " + m.steps10 + " steps in ten minutes.";
-      if (act === "On its feet working") return "At " + t + " my heart started racing. I'd been on my feet for " + stillPhrase(m.mins).replace("over ", "") + ", back and forth.";
-      return "At " + t + " my heart started racing. I was walking somewhere, " + m.steps10 + " steps in ten minutes.";
-    }
-    var sf = stillFor(m);
-    return "At " + t + " my heart started racing. I'd been sitting still for " + stillPhrase(Math.max(10, sf.mins)) +
-      (sf.since >= 720 && sf.since <= 840 && m.peakMin > 840 ? ", and hadn't moved since lunch." : ".");
+  // state B (open) for tonight, state C (complete) once answered; pass the Story decision draft to fill blanks as they're answered
+  function vignette(m, dr) {
+    var f = factors(m), head = episode(f.time, m.date) + ". " + bodySentence(f);
+    if (f.cant && !dr) return head + " Neither of us could remember what was going on.";
+    if (f.flat && !dr) return head + " " + dueS(f.due) + " " + topS(f.behind) + " It left me " + levelWord(f.flat) + ".";
+    return head + " " + openAppraisal(dr ? dr.guess : selfGuess(m), dr);
+  }
+  // state A: a practice story, one fixed episode so only the grid factors vary
+  function anchorVignette(c) { return "This afternoon. " + bodySentence({ moving: c.moving, long: true, high: true }) + " " + dueS(c.due) + " " + topS(c.behind); }
+  function anchorLine(m) {
+    var f = factors(m); if (!f.flat) return "";
+    var diff = f.flat - anchorFlat(cellKey(f.moving, f.due, f.behind));
+    return diff >= 2 ? "That was flatter than my practice story about the same thing." : diff <= -2 ? "That was easier than I expected from my practice story." : "";
+  }
+  function tileFor(m, size) {
+    var f = factors(m);
+    return '<span class="vtile" style="width:' + size + "px;height:" + size + 'px">' + illo(ACTIVITY_ILLO[activityOf(m)], size - 4) +
+      (f.due ? '<img class="badge-c tr" src="illo/badge-due.svg" width="24" height="24" alt="Something was due">' : "") +
+      (f.behind != null ? '<img class="badge-c br" src="illo/badge-' + (f.behind ? "behind" : "on-top") + '.svg" width="24" height="24" alt="' + (f.behind ? "Behind" : "On top of things") + '">' : "") + "</span>";
   }
 
   // ---------- the blob ----------
@@ -264,7 +295,7 @@
     { h: "Blob can however<br>tell <em>you</em> a story", body: "Each evening, the blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.", btn: "Next", blob: { k: 1, state: "wait", acc: "read" } },
     { h: "You might be able to<br>help blob understand.", body: "You fill in what was going on for the blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat", acc: "puzzled" } },
     { h: "You can teach it to learn", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it’s right or wrong.",
-      quote: "“Sitting still, heart racing. I think that was my pressure again.”", btn: "Next", blob: { k: 1, state: "work", acc: "write" } },
+      quote: "“This afternoon. I'd been sitting still for most of an hour when my heart started racing. Something was due, and I was behind. I think it left me quite flat.”", btn: "Next", blob: { k: 1, state: "work", acc: "write" } },
     { h: "It asks for a little care", body: "When it’s flattened, the blob might ask you to breathe slowly with it, or rest. As your heart settles, you’ll see it puff back up.",
       ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Next", blob: { k: 1, state: "puff", acc: "blush" } },
     { h: "Choose your blob", btn: "Meet my blob", blob: { k: 1, state: "wait" }, choose: true }
@@ -357,9 +388,9 @@
   function viewPopup(m) {
     return '<div class="backdrop" data-act="close"></div><div class="sheet" role="dialog" aria-label="The blob has a story"><div class="grab"></div>' +
       '<div class="illo-hero">' + illo("heart-racing", 120) + "</div>" +
-      '<p class="meta">' + ampm(m.peakMin) + " · " + (MOVING[m.watch] ? "On the move" : "Sitting still") + "</p><h2>The blob has a story</h2>" +
+      '<p class="meta">' + ampm(m.peakMin) + " · " + (bodyMoving(m) ? "On the move" : "Sitting still") + "</p><h2>The blob has a story</h2>" +
       '<p class="vig">' + esc(vignette(m)) + "</p>" +
-      '<div class="chips"><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div>" +
+      '<div class="chips"><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span>" + (m.day.context ? '<span class="chip">' + esc(m.day.context) + "</span>" : "") + "</div>" +
       '<button class="btn" data-go="#story/' + m.id + '">Help it understand</button><button class="textbtn" data-act="close">Not now</button></div>';
   }
 
@@ -369,7 +400,7 @@
     if (draft.id !== m.id) {
       var a = S.answers[m.id] || ans(m), g = selfGuess(m);
       draft = { id: m.id, activity: (a && a.activity) || m.watch, due: a ? a.due : null, onTop: a ? a.onTop : null,
-        flat: a && a.flat ? a.flat : g.stage >= 2 ? g.flat : null, guess: g };
+        flat: a && a.flat ? a.flat : null, guess: g, open: !!(a && a.flat) };
     }
     return draft;
   }
@@ -382,10 +413,15 @@
     var h = '<div class="screen"><div class="dhead"><button class="back" data-act="storyback" aria-label="Not now">' + ICON.back + "</button>" +
       '<div class="pdots">' + list.map(function (_, j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + '</div><span class="count">' + (i + 1) + " of " + list.length + "</span></div>" +
       '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + levelLabel(lv) }) + "</div>" +
-      '<div class="storycard"><p class="vig">' + esc(vignette(m)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + '</span><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span></div></div>" +
+      '<div class="storycard"><p class="vig">' + esc(vignette(m, dr)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + '</span><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span>" +
+        (d.context ? '<span class="chip">' + esc(d.context) + "</span>" : "") + "</div></div>" +
       '<div class="q"><h3>What was I doing?</h3><p class="help">My watch thinks I was ' + VOICE[m.watch] + '.</p><div class="opts" role="radiogroup" aria-label="What was I doing?">' +
-      ACTS.map(function (a) { return opt("activity", a, a, ACTIVITY_ILLO[a]); }).join("") + "</div></div>" +
-      '<div class="q"><div class="q-illo">' + illo("something-due", 56) + '<h3>Was something due for me?</h3></div><div class="toggles" role="radiogroup" aria-label="Was something due for me?">' + opt("due", true, "Yes") + opt("due", false, "No") + "</div></div>" +
+      ACTS.map(function (a) { return opt("activity", a, a, ACTIVITY_ILLO[a]); }).join("") + "</div></div>";
+    if (g.stage === 3 && !dr.open) {
+      // stage 3: the blob says what it thinks; confirm it or open the questions
+      return h + '<div class="actions"><button class="btn" data-act="confirm">That\'s right</button><button class="textbtn" data-act="notthis">Not this time</button></div></div>';
+    }
+    h += '<div class="q"><div class="q-illo">' + illo("something-due", 56) + '<h3>Was something due for me?</h3></div><div class="toggles" role="radiogroup" aria-label="Was something due for me?">' + opt("due", true, "Yes") + opt("due", false, "No") + "</div></div>" +
       '<div class="q"><h3>Was I on top of things?</h3><div class="toggles" role="radiogroup" aria-label="Was I on top of things?">' + opt("onTop", true, "Yes") + opt("onTop", false, "Not really") + "</div></div>" +
       '<div class="q"><h3>How flat did I get?</h3><div class="flats" role="radiogroup" aria-label="How flat did I get?">' +
       [1, 2, 3, 4, 5, 6, 7].map(function (k) { return '<button class="ftile" role="radio" aria-checked="' + (dr.flat === k) + '" aria-label="' + cap(levelLabel(k)) + '" data-act="d" data-k="flat" data-v="' + k + '">' + mini(k) + "<span>" + k + "</span></button>"; }).join("") +
@@ -394,14 +430,15 @@
     return h;
   }
 
-  function reflection(m, a, g) {
-    var k = kind(!!MOVING[a.activity], a.flat), names = { Pressure: "pressure", Overload: "overload", Effort: "effort", Neither: "nothing much" };
+  function reflection(m, a, g, confirmed) {
     if (a.activity !== m.watch) return "Oh, I was " + VOICE[a.activity] + ", not " + VOICE[m.watch] + ". I'll remember that.";
-    if (g.stage >= 2 && (k !== g.kind || Math.abs(a.flat - g.flat) >= 2)) {
-      return "Oh, so that one was " + names[k] + ", not " + names[g.kind] + ". I was " + VOICE[a.activity] + ". I'll remember that.";
-    }
-    if (g.stage === 3) return "I knew it. That's my " + names[k] + " again.";
-    return "";
+    if (confirmed) return "I knew it.";
+    if (g.stage < 2) return "";
+    var fixes = [];
+    if (g.due != null && a.due !== g.due) fixes.push(a.due ? "something was due" : "nothing was due");
+    if (g.onTop != null && a.onTop !== g.onTop) fixes.push(a.onTop ? "I was on top of things" : "I was behind");
+    if (g.stage === 3 && Math.abs(a.flat - g.flat) >= 2) fixes.push("it left me " + levelWord(a.flat));
+    return fixes.length ? "Oh, so " + fixes.join(", and ") + ". I'll remember that." : "";
   }
   var CARE_ASK = { Pressure: "I think I need to breathe.", Overload: "Can we slow down first?", Effort: "I just need to rest.", Neither: "I'm fine, actually. Not every rise is stress." };
   function viewAfter(o) {
@@ -470,27 +507,61 @@
     var nn = document.querySelector(".care .textbtn"); if (nn) nn.hidden = true;
   }
 
-  // ---------- stories tab ----------
-  function statusOf(m) {
-    var a = ans(m);
-    if (!a) return '<span class="status wait">Waiting</span>';
-    if (a.cantRemember) return '<span class="status">Can\'t remember</span>';
-    return "";
+  // ---------- journal ----------
+  var openGroups = {};
+  function vcard(m) {
+    var a = ans(m), f = factors(m), line = anchorLine(m);
+    return '<li><button class="vcard" data-go="#story/' + m.id + '">' + tileFor(m, 60) + '<span class="grow"><span class="vmeta">' + ampm(m.peakMin) + " · " + esc(activityOf(m)) + '</span><span class="vtext">' + esc(vignette(m)) + "</span>" +
+      (line ? '<span class="vline">' + esc(line) + "</span>" : "") + (!a ? '<span class="helpme">Help me with this one</span>' : "") + "</span>" +
+      (f.flat ? '<span class="vblob" aria-hidden="true">' + blob(f.flat, { f: 0.8, still: true, noSphere: true, box: 52, boxH: 52 }) + "</span>" : "") + "</button></li>";
   }
-  function row(m) {
-    var a = ans(m);
-    var done = a && !a.cantRemember && a.flat;
-    return '<li><button class="row" data-go="#story/' + m.id + '"><span class="tile">' + illo(ACTIVITY_ILLO[activityOf(m)], 48) + '</span><span class="grow"><b>' + ampm(m.peakMin) + "</b><span>" + esc(activityOf(m)) + " · +" + m.lift + " bpm</span>" +
-      (done ? '<span class="lvl">' + cap(levelLabel(a.flat)) + "</span>" : "") + "</span>" + statusOf(m) + "</button></li>";
+  // 3 or more answered moments with identical factors within 3 hours say the same thing, so they become one card
+  function groupsOf(list) {
+    var by = {}, out = [], used = {};
+    list.forEach(function (m) { var f = factors(m); if (!f.flat) return; var k = [f.moving, f.due, f.behind, f.high].join(); (by[k] = by[k] || []).push(m); });
+    Object.keys(by).forEach(function (k) { var g = by[k]; if (g.length >= 3 && g[g.length - 1].peakMin - g[0].peakMin <= 180) { out.push(g); g.forEach(function (m) { used[m.id] = true; }); } });
+    return { groups: out, used: used };
+  }
+  function groupCard(g) {
+    var f = factors(g[0]), longs = g.filter(function (m) { return factors(m).long; }).length, flats = g.map(function (m) { return factors(m).flat; });
+    var same = flats.every(function (x) { return x === flats[0]; }), id = g[0].id, open = openGroups[id];
+    var text = episode(f.time, g[0].date) + ", I was " + (f.moving ? "on the move" : "sitting still") + " for " + (longs * 2 >= g.length ? "most of an hour" : "a little while") + ", again and again: " +
+      g.length + " times my heart " + (f.high ? "started racing" : "picked up") + ". " + dueS(f.due) + " " + topS(f.behind) + (same ? " It left me " + levelWord(flats[0]) + " each time." : " It left me between " + levelWord(Math.min.apply(null, flats)) + " and " + levelWord(Math.max.apply(null, flats)) + ".");
+    return '<li class="vgroup"><div class="vcard">' + tileFor(g[0], 60) + '<span class="grow"><span class="vmeta">' + ampm(g[0].peakMin) + "–" + ampm(g[g.length - 1].peakMin) + '</span><span class="vtext">' + esc(text) + "</span>" +
+      '<button class="seeall" data-act="grp" data-k="' + id + '" aria-expanded="' + !!open + '">' + (open ? "Hide them" : "See all " + g.length) + "</button></span>" +
+      '<span class="vblob" aria-hidden="true">' + blob(level(mean(flats)), { f: 0.8, still: true, noSphere: true, box: 52, boxH: 52 }) + "</span></div>" +
+      (open ? '<ul class="rows sub">' + g.map(vcard).join("") + "</ul>" : "") + "</li>";
   }
   function viewStories() {
     var h = '<div class="screen with-tabs"><p class="date">Its stories</p><h1 class="title">Journal</h1>';
     DAYS.slice().reverse().forEach(function (d) {
       var list = storiesOf(d).sort(function (a, b) { return a.peakMin - b.peakMin; });
       if (!list.length) return;
-      h += '<div class="group"><h2>' + (d.date === TODAY ? "Tonight" : shortDate(d.date)) + '</h2><ul class="rows">' + list.map(row).join("") + "</ul></div>";
+      var gr = groupsOf(list), shown = {};
+      h += '<div class="group"><h2>' + (d.date === TODAY ? "Tonight" : shortDate(d.date)) + "</h2>" + (d.context ? '<span class="chip ctx">' + esc(d.context) + "</span>" : "") + '<ul class="rows">' +
+        list.map(function (m) {
+          if (!gr.used[m.id]) return vcard(m);
+          var g = gr.groups.filter(function (x) { return x.indexOf(m) >= 0; })[0];
+          if (shown[g[0].id]) return ""; shown[g[0].id] = true; return groupCard(g);
+        }).join("") + "</ul></div>";
     });
     return h + "</div>" + tabbar("stories");
+  }
+
+  // ---------- practice stories (the anchors) ----------
+  function viewPractice() {
+    var h = '<div class="screen"><div class="dhead"><button class="back" data-go="#learned" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
+      '<h1 class="title" style="margin-top:8px">My practice stories</h1><p class="lede">The same made-up afternoon, eight ways. How flat each one leaves me helps me read my real days.</p>';
+    ANCHORS.forEach(function (c) {
+      var v = anchorFlat(c.key);
+      h += '<section class="card anchor"><div class="anc-top"><span class="vtile" style="width:60px;height:60px">' + illo(c.moving ? "walking-somewhere" : "sitting-working", 56) +
+        (c.due ? '<img class="badge-c tr" src="illo/badge-due.svg" width="24" height="24" alt="Something was due">' : "") +
+        '<img class="badge-c br" src="illo/badge-' + (c.behind ? "behind" : "on-top") + '.svg" width="24" height="24" alt="' + (c.behind ? "Behind" : "On top of things") + '"></span>' +
+        '<p class="vtext">' + esc(anchorVignette(c)) + '</p></div><p class="aq">How flat did I get? <b>' + cap(levelLabel(v)) + '</b></p><div class="flats" role="radiogroup" aria-label="How flat did I get?">' +
+        [1, 2, 3, 4, 5, 6, 7].map(function (k) { return '<button class="ftile" role="radio" aria-checked="' + (v === k) + '" aria-label="' + cap(levelLabel(k)) + '" data-act="anchor" data-k="' + c.key + '" data-v="' + k + '">' + mini(k) + "<span>" + k + "</span></button>"; }).join("") +
+        "</div></section>";
+    });
+    return h + '<div style="height:32px"></div></div>';
   }
 
   // ---------- learned tab ----------
@@ -505,7 +576,7 @@
     var P = [];
 
     var still = [], moving = [];
-    ALL.forEach(function (m) { if (answered(m)) (isMoving(m) ? moving : still).push(ans(m).flat); });
+    ALL.forEach(function (m) { if (answered(m)) (bodyMoving(m) ? moving : still).push(ans(m).flat); });
     var aS = mean(still), aM = mean(moving), d1 = aS - aM, c1 = conf(still.length && moving.length, Math.abs(d1) < 1);
     var tS = { illo: "sitting-working", label: "Sitting still", sub: cap(levelLabel(aS)) }, tM = { illo: "walking-somewhere", label: "Moving", sub: cap(levelLabel(aM)) };
     P.push(c1 !== "Starting to see it" ? { id: "still", conf: c1, icon: "sitting-working",
@@ -576,6 +647,15 @@
         '<div class="pbtns" role="group" aria-label="' + esc(p.so) + '"><button class="pbtn" aria-pressed="' + (v === "try") + '" data-act="sugg" data-k="' + p.id + '" data-v="try">Let\'s try it</button>' +
         '<button class="pbtn" aria-pressed="' + (v === "no") + '" data-act="sugg" data-k="' + p.id + '" data-v="no">Not for us</button></div></div>';
     }).join("") + "</section>";
+    var cmp = ANCHORS.map(function (c) {
+      var real = ALL.filter(function (m) { var f = factors(m); return f.flat && cellKey(f.moving, f.due, f.behind) === c.key; }).map(function (m) { return ans(m).flat; });
+      if (real.length < 2) return "";
+      var diff = mean(real) - anchorFlat(c.key), when = "When I'm " + (c.moving ? "on the move" : "sitting still") + ", " + (c.due ? "something's due" : "nothing's due") + " and I'm " + (c.behind ? "behind" : "on top of things");
+      return diff >= 2 ? when + ", real days hit me harder than I guessed." : diff <= -2 ? when + ", real days are easier than I guessed." : "";
+    }).filter(Boolean);
+    h += '<section class="card"><h2 class="ltitle">Compared with my practice stories</h2><p class="lsub">Eight made-up afternoons I rated, so I can read my real days on the same scale.</p>' +
+      (cmp.length ? cmp.map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") : '<p class="pbody">So far my real days have felt about how my practice stories said they would.</p>') +
+      '<div style="height:14px"></div><button class="btn ghost-btn" data-go="#practice">See my practice stories</button></section>';
     var helped = {};
     Object.keys(S.care).forEach(function (id) { var c = S.care[id]; (helped[c.kind] = helped[c.kind] || { n: 0, ok: 0, type: c.type }).n++; if (c.settled) helped[c.kind].ok++; });
     var lines = Object.keys(helped).map(function (k) {
@@ -614,6 +694,7 @@
     else if (r.name === "story") html = viewStory(r.arg);
     else if (r.name === "care") html = viewCare(r.arg);
     else if (r.name === "stories") html = viewStories();
+    else if (r.name === "practice") html = viewPractice();
     else if (r.name === "learned") html = viewLearned();
     else if (r.name === "blob") html = viewBlobTab();
     else html = viewHome();
@@ -673,7 +754,17 @@
       if (act === "cant") { var nx = afterSave(m); go(nx ? "#story/" + nx.id : "#home"); return; }
       overlay = { type: "after", id: m.id, reflect: reflection(m, S.answers[m.id], g), last: !afterSave(m) };
       render();
-    } else if (act === "afternext") {
+    } else if (act === "confirm") {
+      var mc = byId[r.arg], dc = draftFor(mc), gc = dc.guess;
+      S.answers[mc.id] = { activity: dc.activity, fitbitGuess: mc.watch, corrected: dc.activity !== mc.watch, due: gc.due, onTop: gc.onTop, flat: gc.flat, cantRemember: false, confirmed: true };
+      save(); draft = {};
+      overlay = { type: "after", id: mc.id, reflect: reflection(mc, S.answers[mc.id], gc, dc.activity === mc.watch), last: !afterSave(mc) };
+      render();
+    } else if (act === "notthis") {
+      var dn = draftFor(byId[r.arg]); dn.open = true; dn.due = dn.guess.due; dn.onTop = dn.guess.onTop; rerenderKeepScroll();
+    } else if (act === "grp") { openGroups[k] = !openGroups[k]; rerenderKeepScroll(); }
+    else if (act === "anchor") { S.anchors[k] = +v; save(); rerenderKeepScroll(); }
+    else if (act === "afternext") {
       var mm = byId[overlay.id]; overlay = null;
       var nx2 = afterSave(mm); go(nx2 ? "#story/" + nx2.id : "#home");
     } else if (act === "storyback") { draft = {}; go("#home"); }
