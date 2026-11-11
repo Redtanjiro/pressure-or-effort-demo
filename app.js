@@ -288,7 +288,7 @@
   }
 
   function tabbar(active) {
-    var tabs = [["home", "Home"], ["stories", "Journal"], ["learned", "Journey"], ["blob", "Blob"]];
+    var tabs = [["home", "Home"], ["stories", "Journal"], ["learned", "Journey"]];
     return '<nav class="tabbar" aria-label="Main">' + tabs.map(function (t) {
       return '<a class="tab" href="#' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : "") + '><span class="ic">' + ICON[t[0]] + "</span>" + t[1] + "</a>";
     }).join("") + "</nav>";
@@ -354,7 +354,7 @@
     var y = function (b) { return T + (1 - (b - lo) / (hi - lo)) * (H - T - B); };
     var g = "";
     d.moments.forEach(function (m) {
-      var mv = isMoving(m), c = mv ? "#f47d31" : "#5f2b89";
+      var mv = bodyMoving(m), c = mv ? "#f47d31" : "#5f2b89";
       g += '<rect x="' + x(m.start).toFixed(1) + '" y="' + T + '" width="' + Math.max(4, x(m.end) - x(m.start)).toFixed(1) + '" height="' + (H - T - B) + '" rx="6" fill="' + c + '" fill-opacity=".1"/>';
     });
     d.series.forEach(function (p) {
@@ -378,14 +378,16 @@
     return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Its heart rate from 6am to now, with ' + d.moments.length + ' moments when it rose">' + g + "</svg>";
   }
   function viewHome() {
-    var d = todayDay(), lv = todayLevel(), n = d.moments.length;
-    var h = '<div class="screen with-tabs"><p class="date">' + longDate(TODAY) + '</p><h1 class="title">The blob\'s day</h1>' +
-      '<section class="card blobcard">' + blob(lv, { f: 1.9, box: 160, label: "The blob, " + levelLabel(lv) }) +
-      '<div><p class="caption" style="font-weight:500">How flat it is</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small" style="margin:8px 0 12px"><b>' + cap(levelWord(lv)) + "</b>. " + LEVEL_LINE[lv] + "</p>" +
-      '<span class="chip"><i class="dot" style="background:#5f2b89"></i>' + n + " moment" + (n === 1 ? "" : "s") + " today</span></div></section>" +
+    var d = todayDay(), lv = todayLevel();
+    var h = '<div class="screen with-tabs home"><div class="home-head"><h1 class="title">The blob\'s day</h1><p class="date">' + longDate(TODAY) + "</p></div>" +
+      '<div class="home-blob">' + blob(lv, { f: 2.6, box: 300, label: "The blob, " + levelLabel(lv) }) + "</div>" +
+      '<section class="card howcard"><p class="caption">How is blob doing today</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small">' + cap(levelWord(lv)) + ". " + LEVEL_LINE[lv] + "</p></section>" +
+      '<div class="hometiles">' +
+        '<a class="htile pal-glow" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
+        '<a class="htile pal-' + S.look.bg + '" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>" +
       '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
-      '<div class="stats"><div class="stat"><b>' + Math.round(d.rhr) + '</b><span>resting bpm</span></div><div class="stat"><b>' + d.steps.toLocaleString("en-AU") + '</b><span>steps</span></div><div class="stat"><b>' + n + "</b><span>moments</span></div></div>";
-    if (d.nRises > 4) h += '<p class="small" style="margin-top:10px">The blob will ask you about the biggest 4 tonight.</p>';
+      '<section class="card"><h2 class="section">My blob</h2><p class="small" style="margin-top:4px">Change its colour and background any time.</p>' + lookPicker() + "</section>" +
+      '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
     return h + "</div>" + tabbar("home");
   }
 
@@ -556,7 +558,7 @@
 
   // ---------- practice stories (the anchors) ----------
   function viewPractice() {
-    var h = '<div class="screen"><div class="dhead"><button class="back" data-go="#blob" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
+    var h = '<div class="screen"><div class="dhead"><button class="back" data-go="#know" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
       '<h1 class="title" style="margin-top:8px">My practice stories</h1><p class="lede">The same made-up afternoon, eight ways. How flat each one leaves me helps me read my real days.</p>';
     ANCHORS.forEach(function (c) {
       var v = anchorFlat(c.key);
@@ -768,22 +770,9 @@
   }
 
   // ---------- blob tab ----------
-  function viewBlobTab() {
-    var lv = todayLevel(), mine = ALL.filter(answered);
-    var kinds = { Pressure: [], Overload: [], Effort: [], Neither: [] };
-    mine.forEach(function (m) { kinds[kind(isMoving(m), ans(m).flat)].push(m); });
-    var h = '<div class="screen with-tabs"><p class="date">About the blob</p><h1 class="title">The blob</h1>' +
-      '<div style="display:flex;justify-content:center;margin-top:8px">' + blob(lv, { f: 2.4, box: 280, label: "The blob" }) + "</div>" +
-      '<h2 class="khead">Everything I know</h2>' + knowHtml() +
-      '<section class="card"><h2 class="section">My feelings so far</h2><p class="small" style="margin-top:4px">Every moment you helped me with, at how flat I got.</p>';
-    Object.keys(kinds).forEach(function (k) {
-      var list = kinds[k];
-      h += '<div class="kindrow" style="margin-top:12px"><b>' + k + '</b><span class="smoke">' + list.length + "</span></div>" +
-        (list.length ? '<div class="collection">' + list.slice(-10).map(function (m) { return '<button data-go="#story/' + m.id + '" aria-label="' + esc(shortDate(m.date) + ", " + ampm(m.peakMin) + ", " + levelLabel(ans(m).flat)) + '">' + mini(ans(m).flat) + "</button>"; }).join("") + "</div>" : "");
-    });
-    h += '</section><section class="card"><h2 class="section">My blob</h2><p class="small" style="margin-top:4px">Change its colour and background any time.</p>' + lookPicker() + '</section>' +
-      '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
-    return h + "</div>" + tabbar("blob");
+  function viewKnow() {
+    return '<div class="screen with-tabs"><div class="dhead"><button class="back" data-go="#home" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
+      '<h1 class="title" style="margin-top:4px">Everything I know</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>' + knowHtml() + "</div>" + tabbar("home");
   }
 
   // ---------- render ----------
@@ -797,7 +786,7 @@
     else if (r.name === "stories") html = viewStories();
     else if (r.name === "practice") html = viewPractice();
     else if (r.name === "learned" || r.name === "journey") html = viewLearned();
-    else if (r.name === "blob") html = viewBlobTab();
+    else if (r.name === "know") html = viewKnow();
     else html = viewHome();
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
     if (overlay && overlay.type === "after") html += viewAfter(overlay);
@@ -875,7 +864,7 @@
     else if (act === "careexit") {
       var id = r.arg, m3 = byId[id]; stopCare(); careRun = null;
       var nx3 = m3 && afterSave(m3);
-      go(nx3 ? "#story/" + nx3.id : id === "free" ? "#blob" : "#home");
+      go(nx3 ? "#story/" + nx3.id : "#home");
     } else if (act === "sugg") { S.sugg[k] = S.sugg[k] === v ? null : v; save(); rerenderKeepScroll(); }
   });
   // swipe through the intro: left for next, right for back (touch, or a mouse drag on a laptop)
