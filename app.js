@@ -392,8 +392,8 @@
         blob(lv, { f: 0.95, box: 64, boxH: 64, noSphere: true }) + '<p><b>' + cap(levelWord(lv)) + "</b>" + LEVEL_LINE[lv] + "</p></div></div>" +
         '<p class="how-n" aria-label="' + cap(levelLabel(lv)) + '">' + lv + "<span> of 7</span></p></section>" +
       '<div class="hometiles">' +
-        '<a class="htile pal-glow" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
-        '<a class="htile pal-' + S.look.bg + '" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>" +
+        '<a class="htile pal-sea" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
+        '<a class="htile pal-sea" href="#learned"><span>Our journey</span>' + illo("busy-day", 84) + "</a></div>" +
       '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
       '<section class="card"><h2 class="section">Breathe with me</h2><p class="small" style="margin-top:4px">A minute of slow breathing, any time.</p><div style="height:14px"></div><button class="btn" data-go="#care/free">Breathe with me</button></section>';
     return h + "</div>" + tabbar("home");
