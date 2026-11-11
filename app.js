@@ -168,6 +168,11 @@
     var diff = f.flat - anchorFlat(cellKey(f.moving, f.due, f.behind));
     return diff >= 2 ? "That was flatter than my practice story about the same thing." : diff <= -2 ? "That was easier than I expected from my practice story." : "";
   }
+  // the descriptors as word chips, for anywhere a story is shown
+  function wordChips(m) {
+    var f = factors(m);
+    return '<span class="chip">' + (f.moving ? "On the move" : "Sitting still") + " · " + (f.long ? "most of an hour" : "a little while") + '</span><span class="chip">Heart ' + (f.high ? "started racing" : "picked up") + "</span>";
+  }
   function tileFor(m, size) {
     var f = factors(m);
     return '<span class="vtile" style="width:' + size + "px;height:" + size + 'px">' + illo(ACTIVITY_ILLO[activityOf(m)], size - 4) +
@@ -296,28 +301,28 @@
 
   // ---------- onboarding ----------
   var OB = [
-    { kicker: "Hello, meet", h: "BLOB", body: "Blob is well… A blob,<br>blob doesn’t know how to feel because well… its a blob.", btn: "Would you like to help blob?", blob: { k: 1, state: "wait" }, intro: true },
+    { h: "BLOB", body: "Blob is well… A blob,<br>blob doesn’t know how to feel because well… its a blob.", btn: "Would you like to help blob?", blob: { k: 1, state: "wait" }, intro: true },
     { h: "Blob feels things,<br>but it doesn’t know<br>how to <em>feel</em> them.", sub: "But you do…", btn: "But you do…", blob: { k: 1, state: "bounce", acc: "brain" }, big: true },
-    { h: "Blob can however<br>tell <em>you</em> a story", body: "Each evening, the blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.", btn: "Next", blob: { k: 1, state: "wait", acc: "read" } },
-    { h: "You might be able to<br>help blob understand.", body: "You fill in what was going on for the blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat", acc: "puzzled" } },
+    { h: "Blob can however<br>tell <em>you</em> a story", body: "Each evening, Blob tells you about its biggest moments of the day, written from what it felt: the time, whether it was sitting still or on its feet, how fast its heart was going.", btn: "Next", blob: { k: 1, state: "wait", acc: "read" } },
+    { h: "You might be able to<br>help blob understand.", body: "You fill in what was going on for Blob, and how flat it got. Was it pressure, or just effort?", btn: "Next", blob: { k: 5, state: "flat", acc: "puzzled" } },
     { h: "You can teach it to learn", body: "At first it has no idea. After a few days it starts guessing about itself. You just tell it when it’s right or wrong.",
       quote: "“This afternoon. I'd been sitting still for most of an hour when my heart started racing. Something was due, and I was behind. I think it left me quite flat.”", btn: "Next", blob: { k: 1, state: "work", acc: "write" } },
-    { h: "It asks for a little care", body: "When it’s flattened, the blob might ask you to breathe slowly with it, or rest. As your heart settles, you’ll see it puff back up.",
+    { h: "It asks for a little care", body: "When it’s flattened, Blob might ask you to breathe slowly with it, or rest. As your heart settles, you’ll see it puff back up.",
       ticks: ["It never gets worse because you were busy. Only your day can flatten it.", "No streaks, no scores. Skip any day you like.", "You can always say “not now”."], btn: "Next", blob: { k: 1, state: "puff", acc: "blush" } },
     { h: "Choose your blob", btn: "Meet my blob", blob: { k: 1, state: "wait" }, choose: true }
   ];
   function viewOnboarding(i) {
     var o = OB[i];
     var head = i === 0 ? '<div class="ob-head"></div>' :
-      '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" aria-label="Step ' + i + ' of 6">' +
+      '<div class="ob-head"><button class="back" data-go="' + (i === 1 ? "#intro" : "#step" + (i - 1)) + '" aria-label="Back">' + ICON.back + '</button><div class="pdots" role="img" aria-label="Step ' + i + ' of 6">' +
       [1, 2, 3, 4, 5, 6].map(function (j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + "</div><span></span></div>";
-    var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, acc: o.blob.acc, loop: true, box: 330, label: "The blob" }) + "</div>";
+    var art = '<div class="ob-blob">' + blob(o.blob.k, { f: 3.3, state: o.blob.state, acc: o.blob.acc, loop: true, box: 330, label: "Blob" }) + "</div>";
     var btn = '<button class="btn" data-act="ob" data-v="' + i + '">' + o.btn + "</button>";
     if (o.choose) return '<div class="screen"><div class="ob ob-center ob-choose">' + head +
-      '<div class="ob-blob" id="lookblob">' + blob(1, { f: 3.3, state: "wait", loop: true, box: 330, label: "Your blob, " + lookColor()[1] }) + "</div>" +
+      '<div class="ob-blob" id="lookblob">' + blob(1, { f: 3.3, state: "wait", loop: true, box: 330, label: "Blob, " + lookColor()[1] }) + "</div>" +
       "<h1>" + o.h + "</h1>" + lookPicker() + btn + "</div></div>";
     if (o.intro) return '<div class="screen"><div class="ob ob-intro">' + head +
-      '<p class="kicker">' + o.kicker + '</p><h1 class="wordmark">' + o.h + "</h1>" + art +
+      (o.kicker ? '<p class="kicker">' + o.kicker + "</p>" : "") + '<h1 class="wordmark">' + o.h + "</h1>" + art +
       '<p class="body">' + o.body + "</p>" + btn + "</div></div>";
     return '<div class="screen"><div class="ob ob-center' + (o.big ? " ob-big" : "") + '">' + head + art + "<h1>" + o.h + "</h1>" +
       (o.sub ? '<p class="sub">' + o.sub + "</p>" : "") +
@@ -364,7 +369,7 @@
     });
     var th = d.rhr + 25;
     g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(th).toFixed(1) + '" y2="' + y(th).toFixed(1) + '" stroke="#5c5853" stroke-width="1" stroke-dasharray="4 4" stroke-opacity=".6"/>' +
-      '<text x="' + (W - R) + '" y="' + (y(th) - 4).toFixed(1) + '" text-anchor="end">rest + 25</text>';
+      '';
     var pts = d.series.filter(function (p) { return p[0] >= from && p[0] <= NOW; });
     g += '<path d="' + pts.map(function (p, i) { return (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1); }).join("") + '" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
     d.moments.forEach(function (m) {
@@ -375,12 +380,12 @@
     [[360, "6am"], [540, "9am"], [720, "12pm"], [900, "3pm"], [1080, "6pm"]].forEach(function (t, i) {
       g += '<text x="' + x(t[0]).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === 0 ? "start" : i === 4 ? "end" : "middle") + '">' + t[1] + "</text>";
     });
-    return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Its heart rate from 6am to now, with ' + d.moments.length + ' moments when it rose">' + g + "</svg>";
+    return '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Its heart rate from 6am to now, with ' + plural(d.moments.length, "story", "stories") + ' marked">' + g + "</svg>";
   }
   function viewHome() {
     var d = todayDay(), lv = todayLevel();
-    var h = '<div class="screen with-tabs home"><div class="home-head"><h1 class="title">The blob\'s day</h1><p class="date">' + longDate(TODAY) + "</p></div>" +
-      '<div class="home-blob">' + blob(lv, { f: 2.6, box: 300, label: "The blob, " + levelLabel(lv) }) + "</div>" +
+    var h = '<div class="screen with-tabs home"><div class="home-head">' + storyBtn() + '<h1 class="title">Blob\'s day</h1><p class="date">' + longDate(TODAY) + "</p></div>" +
+      '<div class="home-blob">' + blob(lv, { f: 2.6, box: 300, label: "Blob, " + levelLabel(lv) }) + "</div>" +
       '<section class="card howcard"><p class="caption">How is blob doing today</p><p class="flat-n">' + lv + ' <span>of 7</span></p><p class="small">' + cap(levelWord(lv)) + ". " + LEVEL_LINE[lv] + "</p></section>" +
       '<div class="hometiles">' +
         '<a class="htile pal-glow" href="#know"><span>Everything I have learned so far</span>' + illo("learning", 84) + "</a>" +
@@ -391,15 +396,22 @@
     return h + "</div>" + tabbar("home");
   }
 
+  // ---------- story button: a way back into tonight's stories ----------
+  function storyBtn() {
+    var n = storiesOf(todayDay()).filter(function (m) { return !ans(m); }).length;
+    return '<button class="storybtn" data-act="storybtn" aria-label="' + (n ? plural(n, "story", "stories") + " waiting" : "Stories") + '">' + ICON.stories +
+      (n ? '<span class="sbadge" aria-hidden="true">' + n + "</span>" : "") + "</button>";
+  }
+
   // ---------- popup ----------
   function nextStory(d) { return storiesOf(d || todayDay()).filter(function (m) { return !ans(m); })[0]; }
   function viewPopup(m) {
-    return '<div class="backdrop" data-act="close"></div><div class="sheet" role="dialog" aria-label="The blob has a story"><div class="grab"></div>' +
+    return '<div class="backdrop" data-act="close"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Blob has a story"><div class="grab"></div>' +
       '<div class="illo-hero">' + illo("heart-racing", 120) + "</div>" +
-      '<p class="meta">' + ampm(m.peakMin) + " · " + (bodyMoving(m) ? "On the move" : "Sitting still") + "</p><h2>The blob has a story</h2>" +
+      '<p class="meta">' + ampm(m.peakMin) + "</p><h2>Blob has a story</h2>" +
       '<p class="vig">' + esc(vignette(m)) + "</p>" +
-      '<div class="chips"><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span>" + (m.day.context ? '<span class="chip">' + esc(m.day.context) + "</span>" : "") + "</div>" +
-      '<button class="btn" data-go="#story/' + m.id + '">Help it understand</button><button class="textbtn" data-act="close">Not now</button></div>';
+      '<div class="chips">' + wordChips(m) + (m.day.context ? '<span class="chip">' + esc(m.day.context) + "</span>" : "") + "</div>" +
+      '<button class="btn" data-go="#story/' + m.id + '">Help Blob understand</button><button class="textbtn" data-act="close">Not now</button></div>';
   }
 
   // ---------- story decision ----------
@@ -419,12 +431,12 @@
     var lv = dr.flat || (g.stage >= 2 ? g.flat : 4);
     var opt = function (key, v, label, icon) { return '<button class="opt' + (icon ? " with-illo" : "") + '" role="radio" aria-checked="' + (dr[key] === v) + '" data-act="d" data-k="' + key + '" data-v="' + esc(JSON.stringify(v)) + '">' + (icon ? illo(icon, 30) : "") + label + "</button>"; };
     var h = '<div class="screen"><div class="dhead"><button class="back" data-act="storyback" aria-label="Not now">' + ICON.back + "</button>" +
-      '<div class="pdots">' + list.map(function (_, j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + '</div><span class="count">' + (i + 1) + " of " + list.length + "</span></div>" +
-      '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + levelLabel(lv) }) + "</div>" +
-      '<div class="storycard"><p class="vig">' + esc(vignette(m, dr)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + '</span><span class="chip">+' + m.lift + ' bpm</span><span class="chip">' + m.steps10 + " steps</span>" +
+      '<div class="pdots" role="img" aria-label="Story ' + (i + 1) + " of " + list.length + '">' + list.map(function (_, j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + '</div><span></span></div><h1 class="vh">Story ' + (i + 1) + " of " + list.length + "</h1>" +
+      '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "Blob, " + levelLabel(lv) }) + "</div>" +
+      '<div class="storycard"><p class="vig">' + esc(vignette(m, dr)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + "</span>" + wordChips(m) +
         (d.context ? '<span class="chip">' + esc(d.context) + "</span>" : "") + "</div></div>" +
       '<div class="q"><h3>What was I doing?</h3><p class="help">My watch thinks I was ' + VOICE[m.watch] + '.</p><div class="opts" role="radiogroup" aria-label="What was I doing?">' +
-      ACTS.map(function (a) { return opt("activity", a, a, ACTIVITY_ILLO[a]); }).join("") + "</div></div>";
+      ACTS.map(function (a) { return opt("activity", a, a); }).join("") + "</div></div>";
     if (g.stage === 3 && !dr.open) {
       // stage 3: the blob says what it thinks; confirm it or open the questions
       return h + '<div class="actions"><button class="btn" data-act="confirm">That\'s right</button><button class="textbtn" data-act="notthis">Not this time</button></div></div>';
@@ -450,11 +462,11 @@
   }
   var CARE_ASK = { Pressure: "I think I need to breathe.", Overload: "Can we slow down first?", Effort: "I just need to rest.", Neither: "I'm fine, actually. Not every rise is stress." };
   function viewAfter(o) {
-    var m = byId[o.id], a = ans(m), k = kind(!!MOVING[a.activity], a.flat);
+    var m = byId[o.id], a = ans(m), k = careFor(m).k;
     var CARE_ILLO = { Pressure: "breathing", Overload: "breathing", Effort: "water-and-rest" };
     var showBlob = o.reflect ? '<div class="illo-hero">' + illo("learning", 120) + "</div>" :
       CARE_ILLO[k] ? '<div class="illo-hero">' + illo(CARE_ILLO[k], 120) + "</div>" : blob(a.flat, { f: 1.6, box: 170, boxH: 150 });
-    var h = '<div class="backdrop"></div><div class="sheet" role="dialog" aria-label="The blob"><div class="grab"></div><div style="display:flex;justify-content:center">' + showBlob + "</div>";
+    var h = '<div class="backdrop"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Blob"><div class="grab"></div><div style="display:flex;justify-content:center">' + showBlob + "</div>";
     if (o.reflect) h += '<p class="vig" style="font-weight:500">' + esc(o.reflect) + "</p>";
     h += '<h2 style="margin-top:14px">' + CARE_ASK[k] + "</h2><div style=\"height:16px\"></div>";
     if (k === "Neither") h += '<button class="btn" data-act="afternext">' + (o.last ? "Back to its day" : "Next story") + "</button>";
@@ -463,9 +475,16 @@
   }
 
   // ---------- care ----------
+  // the kind of care, from the answer, else the watch's guess and Blob's own guess, else pressure at level 4 (care/free)
+  function careFor(m) {
+    var a = m && ans(m);
+    var moving = a && a.activity ? !!MOVING[a.activity] : m ? !!MOVING[m.watch] : false;
+    var lv = a && a.flat ? a.flat : m ? selfGuess(m).flat : 4;
+    return { k: m ? kind(moving, lv) : "Pressure", lv: lv };
+  }
   var careRun = null;
   function viewCare(id) {
-    var m = byId[id], k = m ? kind(!!MOVING[ans(m).activity], ans(m).flat) : "Pressure", lv = m ? ans(m).flat : 4;
+    var m = byId[id], c = careFor(m), k = c.k, lv = c.lv;
     var title = k === "Effort" ? "Rest with me" : "Breathe with me";
     var sub = k === "Effort" ? "Have some water, stretch, or sit for a minute. No need to soothe anything." : k === "Overload" ? "Let's just pause for a moment first." : "In for 4, out for 6. Follow my shape.";
     return '<div class="screen"><div class="care"><div class="dhead"><button class="back" data-act="careexit" aria-label="Not now">' + ICON.back + "</button><span></span><span></span></div>" +
@@ -475,7 +494,7 @@
   }
   function startCare(id) {
     stopCare();
-    var m = byId[id], k = m ? kind(!!MOVING[ans(m).activity], ans(m).flat) : "Pressure", rest = m ? m.day.rhr : todayDay().rhr;
+    var m = byId[id], k = careFor(m).k, rest = m ? m.day.rhr : todayDay().rhr;
     var start = m ? m.bpm - 6 : rest + 22, t0 = Date.now(), total = k === "Effort" ? 30000 : 60000, pause = k === "Overload" ? 5000 : 0;
     var cue = document.getElementById("cue"), bpm = document.getElementById("bpm");
     careRun = { id: id, k: k, start: start, rest: rest, t0: t0, total: total + pause, timer: setInterval(tick, 250), settled: false };
@@ -506,7 +525,7 @@
     careRun = null;
     var m = byId[r.id];
     if (m) { S.care[r.id] = { kind: r.k, type: r.k === "Effort" ? "rest" : "breathe", from: r.start, to: r.bpmNow, settled: settled }; save(); }
-    var lv = m ? ans(m).flat : 4;
+    var lv = careFor(m).lv;
     var host = document.getElementById("careblob");
     if (host) host.innerHTML = settled ? blob(1, { f: 2.4, state: "puff", box: 300 }) : blob(lv, { f: 2.4, state: lv >= 4 ? "flat" : "wait", pal: "sage", box: 300 });
     var cue = document.getElementById("cue"), btn = document.getElementById("caredone");
@@ -541,7 +560,7 @@
       (open ? '<ul class="rows sub">' + g.map(vcard).join("") + "</ul>" : "") + "</li>";
   }
   function viewStories() {
-    var h = '<div class="screen with-tabs"><p class="date">Its stories</p><h1 class="title">Journal</h1>';
+    var h = '<div class="screen with-tabs"><div class="titlerow top"><h1 class="title">Journal</h1>' + storyBtn() + "</div>";
     DAYS.slice().reverse().forEach(function (d) {
       var list = storiesOf(d).sort(function (a, b) { return a.peakMin - b.peakMin; });
       if (!list.length) return;
@@ -590,14 +609,14 @@
     var tS = { illo: "sitting-working", label: "Sitting still", sub: cap(levelLabel(aS)) }, tM = { illo: "walking-somewhere", label: "Moving", sub: cap(levelLabel(aM)) };
     P.push(c1 !== "Starting to see it" ? { id: "still", conf: c1, icon: "sitting-working",
       title: "I can't tell yet whether sitting still or moving flattens me more",
-      body: c1 === "Needs more days" ? "I need stories from a few more days, with some still moments and some moving ones." : "So far, sitting still and moving leave me about as flat as each other. I'll keep watching." } :
+      body: c1 === "Needs more days" ? "I need stories from a few more days, with some stories while sitting still and some while moving." : "So far, sitting still and moving leave me about as flat as each other. I'll keep watching." } :
       d1 > 0 ? { id: "still", conf: c1, title: "Sitting still flattens me more than moving", tiles: [tS, tM],
         body: "When my heart raced while I was sitting still, I got about " + levelWord(aS) + ". When it raced while I was moving, I was " + levelWord(aM) + ".",
-        evidence: "Based on " + plural(still.length, "still moment") + " and " + plural(moving.length, "moving one") + ".",
+        evidence: "Based on " + plural(still.length, "story", "stories") + " while sitting still and " + moving.length + " while moving.",
         so: "Before a long sit at the desk, let's move for 10 minutes first." } :
       { id: "still", conf: c1, title: "Moving flattens me more than sitting still", tiles: [tM, tS],
         body: "When my heart raced while I was moving, I got about " + levelWord(aM) + ". When it raced while I was sitting still, I was " + levelWord(aS) + ".",
-        evidence: "Based on " + plural(moving.length, "moving moment") + " and " + plural(still.length, "still one") + ".",
+        evidence: "Based on " + plural(moving.length, "story", "stories") + " while moving and " + still.length + " while sitting still.",
         so: "After a big burst of moving, let's give myself a proper rest." });
 
     var busy = [], quiet = [];
@@ -642,8 +661,8 @@
     });
   }
   function actRow(g) {
-    return '<li><span class="tile t64">' + illo(ACTIVITY_ILLO[g.a], 60) + '</span><span class="grow"><b>' + g.a + '</b><span class="smoke">' + (g.n ? "Usually " + levelLabel(g.avg) : "No moments yet") + "</span>" +
-      '<span class="mline">' + meter(g.n ? level(g.avg) : 0) + '<span class="cnt">' + plural(g.n, "moment") + "</span></span></span></li>";
+    return '<li><span class="tile t64">' + illo(ACTIVITY_ILLO[g.a], 60) + '</span><span class="grow"><b>' + g.a + '</b><span class="smoke">' + (g.n ? "Usually " + levelLabel(g.avg) : "No stories yet") + "</span>" +
+      '<span class="mline">' + meter(g.n ? level(g.avg) : 0) + '<span class="cnt">' + plural(g.n, "story", "stories") + "</span></span></span></li>";
   }
   function patternHtml(p) {
     var v = S.sugg[p.id], yes = p.conf === "Starting to see it";
@@ -720,10 +739,10 @@
     byNode = {}; N.forEach(function (n) { byNode[n.id] = n; });
     var done = N.filter(function (n) { return n.state === "done"; }).length;
     var STEP = 196, X = [0, -64, -94, -64, 0, 64, 94, 64], cx = function (i) { return X[i % X.length]; };
-    var h = '<div class="screen with-tabs"><p class="date">' + plural(DAYS.length, "day") + " together · " + done + " of " + N.length + ' learned</p><h1 class="title">Journey</h1>' +
+    var h = '<div class="screen with-tabs"><p class="date">' + plural(DAYS.length, "day") + " together · " + done + " of " + N.length + ' learned</p><div class="titlerow"><h1 class="title">Journey</h1>' + storyBtn() + "</div>" +
       '<div class="journey" style="height:' + (N.length * STEP - 40) + 'px">';
     // side art in the space the path swings away from
-    var ART = ['<div class="jart" style="top:' + (1 * STEP) + 'px;--side:1">' + blob(todayLevel(), { f: 2, box: 190, boxH: 190, label: "The blob" }) + "</div>"];
+    var ART = ['<div class="jart" style="top:' + (1 * STEP) + 'px;--side:1">' + blob(todayLevel(), { f: 2, box: 190, boxH: 190, label: "Blob" }) + "</div>"];
     ["learning", "busy-day", "sleeping", "quiet-day"].forEach(function (name, j) {
       var seg = 5 + j * 4; if (seg >= N.length - 1) return;
       ART.push('<div class="jart" style="top:' + (seg * STEP) + "px;--side:" + (X[seg % 8] > 0 ? -1 : 1) + '">' + illo(name, 150) + "</div>");
@@ -749,7 +768,7 @@
   var byNode = {};
   function viewNode(id) {
     var n = byNode[id]; if (!n) return "";
-    return '<div class="backdrop" data-act="close"></div><div class="sheet nsheet" role="dialog" aria-label="' + esc(n.title) + '"><div class="grab"></div>' +
+    return '<div class="backdrop" data-act="close"></div><div class="sheet nsheet" role="dialog" aria-modal="true" aria-label="' + esc(n.title) + '"><div class="grab"></div>' +
       '<span class="pill' + (n.state === "done" ? " yes" : "") + '">' + (n.state === "done" ? "Learned" : n.current ? "Learning now" : n.state === "doing" ? "Started" : "Not yet") + "</span>" +
       '<h2 class="ntitle">' + esc(n.title) + "</h2>" + n.detail + '<div style="height:16px"></div><button class="btn" data-act="close">Got it</button></div>';
   }
@@ -791,7 +810,17 @@
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
     if (overlay && overlay.type === "after") html += viewAfter(overlay);
     if (overlay && overlay.type === "node") html += viewNode(overlay.id);
+    var hadSheet = !!app.querySelector(".sheet");
     app.innerHTML = html;
+    var main = app.querySelector(".screen"); if (main) main.setAttribute("role", "main");
+    var sheet = app.querySelector(".sheet");
+    if (sheet) {
+      // keep focus inside the open sheet
+      app.querySelectorAll(".screen, .tabbar").forEach(function (el) { el.inert = true; });
+      var fb = sheet.querySelector("button"); if (fb) fb.focus();
+    } else if (hadSheet) {
+      var sb = app.querySelector(".storybtn"); if (sb) sb.focus();
+    }
     if (obDir) { var ob = app.querySelector(".ob"); if (ob) ob.classList.add("in-" + obDir); obDir = ""; }
     if (r.name === "care") startCare(r.arg);
     if (r.name === "home" && S.onboarded && !S.popupSeen && !overlay) {
@@ -825,13 +854,15 @@
       S.look[k] = v; save();
       var sc0 = app.querySelector(".screen"), top0 = sc0 ? sc0.scrollTop : 0;
       render(); sc0 = app.querySelector(".screen"); if (sc0) sc0.scrollTop = top0;
+    } else if (act === "storybtn") {
+      var ns = nextStory(); if (ns) { overlay = { type: "popup", id: ns.id }; rerenderKeepScroll(); } else go("#stories");
     } else if (act === "read") {
       var n = nextStory(); if (n) { overlay = { type: "popup", id: n.id }; render(); }
     } else if (act === "close") { overlay = null; rerenderKeepScroll(); }
     else if (act === "node") { overlay = { type: "node", id: k }; rerenderKeepScroll(); }
     else if (act === "d") {
       draft[k] = JSON.parse(v);
-      if (k === "flat") { var host = document.getElementById("dblob"); if (host) host.innerHTML = blob(draft.flat, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + levelLabel(draft.flat) }); }
+      if (k === "flat") { var host = document.getElementById("dblob"); if (host) host.innerHTML = blob(draft.flat, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "Blob, " + levelLabel(draft.flat) }); }
       var sc = app.querySelector(".screen"), top = sc.scrollTop, blobHtml = document.getElementById("dblob").innerHTML;
       app.innerHTML = viewStory(r.arg);
       document.getElementById("dblob").innerHTML = blobHtml;

@@ -152,7 +152,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .picker { margin-top: 16px; text-align: left; }
 .pick-h { font-size: 13px; font-weight: 700; color: var(--smoke); margin: 12px 0 8px; }
 .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
-.sw { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; font-size: 11px; color: var(--smoke); border-radius: 12px; min-height: 44px; }
+.sw { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; font-size: 12px; color: var(--smoke); border-radius: 12px; min-height: 44px; }
 .sw-dot { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); transition: box-shadow .15s; }
 .sw.on { color: var(--ink); font-weight: 700; }
 .sw.on .sw-dot { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
@@ -187,7 +187,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .legend { display: flex; gap: 12px; font-size: 13px; color: var(--smoke); }
 .legend span { display: inline-flex; align-items: center; gap: 5px; }
 .chart { width: 100%; height: auto; display: block; margin-top: 10px; overflow: visible; }
-.chart text { font-family: inherit; font-size: 11px; fill: var(--smoke); }
+.chart text { font-family: inherit; font-size: 12px; fill: var(--smoke); }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 14px 12px; }
 .stat b { display: block; font-size: 22px; letter-spacing: -0.03em; }
@@ -199,7 +199,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
   position: absolute; left: 0; right: 0; bottom: 0; height: calc(84px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
   background: var(--card); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr); z-index: 5;
 }
-.tab { text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #8f8a85; font-size: 12px; font-weight: 500; }
+.tab { text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #5c5853; font-size: 12px; font-weight: 500; }
 .tab .ic { width: 56px; height: 30px; border-radius: 999px; display: grid; place-items: center; }
 .tab[aria-current="page"] { color: var(--ink); font-weight: 700; }
 .tab[aria-current="page"] .ic { background: var(--tab); }
@@ -413,3 +413,17 @@ button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; back
 .htile span { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; max-width: 130px; }
 .htile .illo { align-self: flex-end; margin-right: -6px; }
 .htile:active { transform: scale(.98); }
+
+/* ---------- story button ---------- */
+.home-head { position: relative; }
+.titlerow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
+.titlerow.top { margin-top: 44px; }
+.titlerow .title { margin-top: 0; }
+.titlerow .storybtn { position: relative; top: auto; right: auto; flex: none; }
+.screen.with-tabs .home-head .date { margin-top: 4px; }
+.storybtn { position: absolute; right: 0; top: 36px; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink); z-index: 2; }
+.home-head .storybtn { top: -6px; }
+.storybtn svg { width: 22px; height: 22px; }
+.sbadge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--primary); color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
