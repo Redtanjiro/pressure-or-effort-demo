@@ -228,7 +228,7 @@
         '<path d="M' + F(cx) + " " + F(y0 + H * 0.64) + "v" + F(H * 0.23) + '" stroke="#d9d3cd" stroke-width="1"/>' +
         '<g stroke="#d9d3cd" stroke-width="1">' + [0, 1, 2].map(function (j) { var yy = y0 + H * (0.62 + j * 0.05); return '<path d="M' + F(cx - W * 0.27) + " " + F(yy) + "l" + F(W * 0.22) + " " + F(H * 0.05) + "M" + F(cx + W * 0.05) + " " + F(yy + H * 0.05) + "l" + F(W * 0.22) + " " + F(-H * 0.05) + '"/>'; }).join("") + "</g></g>",
       // not sure: a question mark and a sweat drop
-      puzzled: '<text class="a-q" x="' + F(cx + W * 0.2) + '" y="' + F(y0 - H * 0.12) + '" font-family="DM Sans, system-ui, sans-serif" font-weight="700" font-size="' + F(fs * 5.5) + '" fill="#5f2b89">?</text>' +
+      puzzled: '<text class="a-q" x="' + F(cx + W * 0.2) + '" y="' + F(y0 - H * 0.12) + '" font-family="Montserrat, system-ui, sans-serif" font-weight="700" font-size="' + F(fs * 5.5) + '" fill="#5f2b89">?</text>' +
         '<path class="a-drop" d="M' + F(x0 + W * 0.14) + " " + F(y0 + H * 0.12) + "c" + F(fs * 0.7) + " " + F(fs * 1.2) + " " + F(fs * 1.1) + " " + F(fs * 1.8) + " " + F(fs * 1.1) + " " + F(fs * 2.4) + "a" + F(fs * 1.1) + " " + F(fs * 1.1) + " 0 0 1 " + F(-fs * 2.2) + " 0c0 " + F(-fs * 0.6) + " " + F(fs * 0.4) + " " + F(-fs * 1.2) + " " + F(fs * 1.1) + " " + F(-fs * 2.4) + 'z" fill="#8fd3ff" stroke="#fff" stroke-width=".8"/>',
       // writing it down in a notebook
       write: '<g class="a-note"><rect x="' + F(cx - W * 0.4) + '" y="' + F(y0 + H * 0.6) + '" width="' + F(W * 0.8) + '" height="' + F(H * 0.3) + '" rx="' + F(fs * 0.6) + '" fill="#fdfcfc" stroke="#e2ded9" stroke-width=".8"/>' +
