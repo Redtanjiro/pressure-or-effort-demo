@@ -266,6 +266,12 @@
     stories: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 5h14v10H10l-5 4z"/></svg>',
     learned: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.2 5.6L20 9.5l-4.4 3.8L17 19l-5-3-5 3 1.4-5.7L4 9.5l5.8-.9z"/></svg>',
     blob: '<svg width="22" height="22" viewBox="0 0 100 90" fill="none" stroke="currentColor" stroke-width="9"><path d="' + V[0] + '"/></svg>',
+    star: '<svg width="28" height="28" viewBox="0 0 24 24"><path d="M12 2.8l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 16.8l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    book: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 6c-2-1.5-5-2-8-1.5v14c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5v-14c-3-.5-6 0-8 1.5zM12 6v14"/></svg>',
+    sun: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>',
+    spark: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 2.5Q13.4 10.6 21.5 12 13.4 13.4 12 21.5 10.6 13.4 2.5 12 10.6 10.6 12 2.5z" fill="currentColor"/></svg>',
+    heart: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 20.5C5 16 2.5 12.5 2.5 8.8A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 9.5 2.2c0 3.7-2.5 7.2-9.5 11.7z" fill="currentColor"/></svg>',
+    list: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     tick: '<svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#ffe9a6"/><path d="M6 10.5l2.6 2.5L14 7.5" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
 
@@ -625,44 +631,131 @@
     for (var j = 1; j <= 7; j++) g += '<circle cx="' + (4 + (j - 1) * 11) + '" cy="4" r="3.6" fill="' + (j <= k ? "#2d2c2b" : "#e2ded9") + '"/>';
     return '<svg class="meter" width="78" height="8" viewBox="0 0 78 8" aria-hidden="true">' + g + "</svg>";
   }
-  function viewLearned() {
-    var h = '<div class="screen with-tabs learned"><h1 class="title" style="margin-top:44px">Learned</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>';
-    var groups = ACTS.map(function (a) {
+  // ---------- learned: the pieces ----------
+  function actGroups() {
+    return ACTS.map(function (a) {
       var f = ALL.filter(function (m) { return answered(m) && activityOf(m) === a; }).map(function (m) { return ans(m).flat; });
       return { a: a, n: f.length, avg: mean(f) };
-    }).filter(function (g) { return g.n >= 1; });
-    h += '<section class="card"><h2 class="ltitle">What I know about myself</h2><p class="lsub">How flat I usually get doing each thing, from 1 (not flat) to 7 (completely flat).</p>' +
-      (groups.length ? '<ul class="acts">' + groups.map(function (g) {
-        return '<li><span class="tile t64">' + illo(ACTIVITY_ILLO[g.a], 60) + '</span><span class="grow"><b>' + g.a + '</b><span class="smoke">Usually ' + levelLabel(g.avg) + '</span>' +
-          '<span class="mline">' + meter(level(g.avg)) + '<span class="cnt">' + plural(g.n, "moment") + "</span></span></span></li>";
-      }).join("") + "</ul>" : '<p class="small" style="margin-top:12px">Help me with a few stories and I\'ll start to know.</p>') + "</section>";
-    h += '<section class="card"><h2 class="ltitle">Patterns I\'m noticing</h2><p class="lsub">The more stories you help me with, the surer I get.</p>' + patterns().map(function (p) {
-      var v = S.sugg[p.id], yes = p.conf === "Starting to see it";
-      var out = '<div class="pat"><span class="pill' + (yes ? " yes" : "") + '">' + p.conf + "</span>";
-      if (!p.tiles) return out + '<div class="pat-unsure">' + '<span class="tile t64">' + illo(p.icon, 60) + "</span><h3>" + p.title + "</h3></div>" +
-        '<p class="pbody">' + esc(p.body) + '</p><p class="pbody" style="margin-top:8px">No suggestion yet.</p></div>';
-      return out + "<h3>" + p.title + '</h3><div class="ptiles">' + p.tiles.map(function (t) {
-        return '<div class="ptile">' + illo(t.illo, 88) + "<b>" + t.label + "</b><span>" + t.sub + "</span></div>";
-      }).join("") + '</div><p class="pbody">' + esc(p.body) + '</p><p class="evid">' + esc(p.evidence) + '</p><p class="so"><b>So:</b> ' + esc(p.so) + "</p>" +
-        '<div class="pbtns" role="group" aria-label="' + esc(p.so) + '"><button class="pbtn" aria-pressed="' + (v === "try") + '" data-act="sugg" data-k="' + p.id + '" data-v="try">Let\'s try it</button>' +
-        '<button class="pbtn" aria-pressed="' + (v === "no") + '" data-act="sugg" data-k="' + p.id + '" data-v="no">Not for us</button></div></div>';
-    }).join("") + "</section>";
-    var cmp = ANCHORS.map(function (c) {
+    });
+  }
+  function actRow(g) {
+    return '<li><span class="tile t64">' + illo(ACTIVITY_ILLO[g.a], 60) + '</span><span class="grow"><b>' + g.a + '</b><span class="smoke">' + (g.n ? "Usually " + levelLabel(g.avg) : "No moments yet") + "</span>" +
+      '<span class="mline">' + meter(g.n ? level(g.avg) : 0) + '<span class="cnt">' + plural(g.n, "moment") + "</span></span></span></li>";
+  }
+  function patternHtml(p) {
+    var v = S.sugg[p.id], yes = p.conf === "Starting to see it";
+    var out = '<div class="pat"><span class="pill' + (yes ? " yes" : "") + '">' + p.conf + "</span>";
+    if (!p.tiles) return out + '<div class="pat-unsure"><span class="tile t64">' + illo(p.icon, 60) + "</span><h3>" + p.title + "</h3></div>" +
+      '<p class="pbody">' + esc(p.body) + '</p><p class="pbody" style="margin-top:8px">No suggestion yet.</p></div>';
+    return out + "<h3>" + p.title + '</h3><div class="ptiles">' + p.tiles.map(function (t) {
+      return '<div class="ptile">' + illo(t.illo, 88) + "<b>" + t.label + "</b><span>" + t.sub + "</span></div>";
+    }).join("") + '</div><p class="pbody">' + esc(p.body) + '</p><p class="evid">' + esc(p.evidence) + '</p><p class="so"><b>So:</b> ' + esc(p.so) + "</p>" +
+      '<div class="pbtns" role="group" aria-label="' + esc(p.so) + '"><button class="pbtn" aria-pressed="' + (v === "try") + '" data-act="sugg" data-k="' + p.id + '" data-v="try">Let\'s try it</button>' +
+      '<button class="pbtn" aria-pressed="' + (v === "no") + '" data-act="sugg" data-k="' + p.id + '" data-v="no">Not for us</button></div></div>';
+  }
+  function anchorLines() {
+    return ANCHORS.map(function (c) {
       var real = ALL.filter(function (m) { var f = factors(m); return f.flat && cellKey(f.moving, f.due, f.behind) === c.key; }).map(function (m) { return ans(m).flat; });
       if (real.length < 2) return "";
       var diff = mean(real) - anchorFlat(c.key), when = "When I'm " + (c.moving ? "on the move" : "sitting still") + ", " + (c.due ? "something's due" : "nothing's due") + " and I'm " + (c.behind ? "behind" : "on top of things");
       return diff >= 2 ? when + ", real days hit me harder than I guessed." : diff <= -2 ? when + ", real days are easier than I guessed." : "";
     }).filter(Boolean);
-    h += '<section class="card"><h2 class="ltitle">Compared with my practice stories</h2><p class="lsub">Eight made-up afternoons I rated, so I can read my real days on the same scale.</p>' +
-      (cmp.length ? cmp.map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") : '<p class="pbody">So far my real days have felt about how my practice stories said they would.</p>') +
-      '<div style="height:14px"></div><button class="btn ghost-btn" data-go="#practice">See my practice stories</button></section>';
+  }
+  function helpLines() {
     var helped = {};
     Object.keys(S.care).forEach(function (id) { var c = S.care[id]; (helped[c.kind] = helped[c.kind] || { n: 0, ok: 0, type: c.type }).n++; if (c.settled) helped[c.kind].ok++; });
-    var lines = Object.keys(helped).map(function (k) {
+    return Object.keys(helped).map(function (k) {
       var x = helped[k], what = x.type === "rest" ? "A rest" : "Slow breathing";
       return x.ok ? what + " puffs me back up after " + k.toLowerCase() + "." : what + " hasn't puffed me back up after " + k.toLowerCase() + " yet.";
     });
-    h += '<section class="card"><h2 class="ltitle">What helps me</h2>' + (lines.length ? lines.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
+  }
+
+  // ---------- learned: the path ----------
+  // every milestone the blob can reach, in order; tap one to see what it has worked out there
+  function learnedNodes() {
+    var N = [], first = DAYS[0].date, days = DAYS.length;
+    N.push({ id: "met", title: "We met", icon: '<span class="nstar">' + ICON.star + "</span>", state: "done",
+      detail: '<p class="pbody">We met on ' + shortDate(first) + ". That's " + plural(days, "day") + " together so far.</p>" });
+    actGroups().slice().sort(function (a, b) { return b.n - a.n; }).forEach(function (g) {
+      N.push({ id: "act-" + g.a, title: g.a, icon: illo(ACTIVITY_ILLO[g.a], 60), state: g.n >= 3 ? "done" : g.n ? "doing" : "todo", progress: Math.min(1, g.n / 3),
+        detail: '<ul class="acts">' + actRow(g) + "</ul>" + '<p class="pbody">' + (g.n >= 3 ? "I know how " + VOICE[g.a] + " usually leaves me." : "Help me with " + (3 - g.n) + " more " + (3 - g.n === 1 ? "story" : "stories") + " where I was " + VOICE[g.a] + ", and I'll know how it leaves me.") + "</p>" });
+    });
+    N.push({ id: "practice", title: "Practice stories", icon: '<span class="nstar">' + ICON.book + "</span>", state: "done",
+      detail: '<p class="pbody">Eight made-up afternoons I rated, so I can read my real days on the same scale.</p><div style="height:14px"></div><button class="btn ghost-btn" data-go="#practice">See my practice stories</button>' });
+    var nDays = DAYS.filter(function (d) { return wholeOf(d) != null; }).length;
+    patterns().forEach(function (p) {
+      N.push({ id: "pat-" + p.id, title: p.tiles ? p.title : { still: "Still or moving?", steps: "Busy or quiet days?", rhr: "My resting heartbeat" }[p.id],
+        icon: illo(p.tiles ? p.tiles[0].illo : p.icon, 60), state: p.conf === "Starting to see it" ? "done" : p.conf === "Not sure yet" ? "doing" : "todo",
+        progress: p.conf === "Not sure yet" ? 0.5 : Math.min(1, nDays / 6), detail: patternHtml(p) });
+    });
+    var al = anchorLines();
+    N.push({ id: "compare", title: "Real days vs practice", icon: illo("learning", 60), state: al.length ? "done" : "doing", progress: 0.5,
+      detail: (al.length ? al : ["So far my real days have felt about how my practice stories said they would."]).map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") });
+    var hl = helpLines();
+    N.push({ id: "helps", title: "What helps me", icon: illo("breathing", 60), state: hl.length ? "done" : "todo", progress: 0,
+      detail: (hl.length ? hl : ["When I ask for a little care, I'll remember what helped."]).map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") });
+    // learned milestones first, then started ones, then the rest, so everything above the blob is done
+    var rank = { done: 0, doing: 1, todo: 2 };
+    N = N.map(function (n, i) { return [n, i]; }).sort(function (a, b) { return rank[a[0].state] - rank[b[0].state] || a[1] - b[1]; }).map(function (x) { return x[0]; });
+    var cur = N.filter(function (n) { return n.state !== "done"; })[0]; if (cur) cur.current = true;
+    return N;
+  }
+  function ring(p) {
+    var r = 46, c = 2 * Math.PI * r;
+    return '<svg class="nring" width="104" height="104" viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="52" r="' + r + '" fill="none" stroke="#e2ded9" stroke-width="7"/>' +
+      '<circle cx="52" cy="52" r="' + r + '" fill="none" stroke="#f4b400" stroke-width="7" stroke-linecap="round" stroke-dasharray="' + (c * Math.max(0.06, p)).toFixed(1) + " " + c.toFixed(1) + '" transform="rotate(-90 52 52)"/></svg>';
+  }
+  function viewLearned() {
+    var N = learnedNodes();
+    byNode = {}; N.forEach(function (n) { byNode[n.id] = n; });
+    var helped = ALL.filter(function (m) { return S.answers[m.id] || (m.example && answered(m)); }).length, found = patterns().filter(function (p) { return p.conf === "Starting to see it"; }).length;
+    var cur = N.filter(function (n) { return n.current; })[0], done = N.filter(function (n) { return n.state === "done"; }).length;
+    var h = '<div class="screen with-tabs path-screen">' +
+      '<div class="pstats" role="list">' +
+        '<span role="listitem" title="Days together"><i style="color:#f47d31">' + ICON.sun + "</i>" + DAYS.length + '<span class="vh"> days together</span></span>' +
+        '<span role="listitem" title="Stories you helped with"><i style="color:#5f2b89">' + ICON.stories + "</i>" + helped + '<span class="vh"> stories helped with</span></span>' +
+        '<span role="listitem" title="Patterns found"><i style="color:#e3a400">' + ICON.spark + "</i>" + found + '<span class="vh"> patterns found</span></span>' +
+        '<span role="listitem" title="Times you cared for me"><i style="color:#ff6fa8">' + ICON.heart + "</i>" + Object.keys(S.care).length + '<span class="vh"> times cared for</span></span></div>' +
+      '<div class="pbanner"><div><p class="pb-k">Day ' + DAYS.length + " · " + done + " of " + N.length + " learned</p><h1>" + (cur ? "Now learning: " + esc(cur.title) : "I've learned it all, for now") + "</h1></div>" +
+        '<a class="pb-btn" href="#learned/all" aria-label="See everything I know">' + ICON.list + "</a></div>" +
+      '<ol class="path">';
+    var X = [0, -62, -92, -62, 0, 62, 92, 62];
+    N.forEach(function (n, i) {
+      var x = X[i % X.length];
+      h += '<li class="pnode ' + n.state + (n.current ? " current" : "") + '" style="--x:' + x + 'px">' +
+        (n.current ? ring(n.progress || 0) : "") +
+        '<button class="nbtn" data-act="node" data-k="' + esc(n.id) + '" aria-label="' + esc(n.title + ", " + (n.state === "done" ? "learned" : n.current ? "learning now" : n.state === "doing" ? "started" : "not yet")) + '">' + n.icon + "</button>" +
+        '<span class="nlabel">' + esc(n.title) + "</span>";
+      if (n.current) {
+        // the blob sits beside where it's up to, with a star for each pattern it has found
+        h += '<span class="pblob" style="--side:' + (x > 0 ? -1 : 1) + '">' + blob(todayLevel(), { f: 1.15, box: 120, boxH: 112, noSphere: true, label: "The blob" }) +
+          '<span class="pstars">' + [0, 1, 2].map(function (j) { return '<i class="' + (j < found ? "on" : "") + '">' + ICON.star + "</i>"; }).join("") + "</span></span>";
+      }
+      h += "</li>";
+    });
+    return h + "</ol></div>" + tabbar("learned");
+  }
+  var byNode = {};
+  function viewNode(id) {
+    var n = byNode[id]; if (!n) return "";
+    return '<div class="backdrop" data-act="close"></div><div class="sheet nsheet" role="dialog" aria-label="' + esc(n.title) + '"><div class="grab"></div>' +
+      '<span class="pill' + (n.state === "done" ? " yes" : "") + '">' + (n.state === "done" ? "Learned" : n.current ? "Learning now" : n.state === "doing" ? "Started" : "Not yet") + "</span>" +
+      '<h2 class="ntitle">' + esc(n.title) + "</h2>" + n.detail + '<div style="height:16px"></div><button class="btn" data-act="close">Got it</button></div>';
+  }
+  // the full list, from the banner button
+  function viewLearnedAll() {
+    var h = '<div class="screen with-tabs learned"><div class="dhead"><button class="back" data-go="#learned" aria-label="Back to the path">' + ICON.back + '</button><span></span><span></span></div>' +
+      '<h1 class="title" style="margin-top:4px">Everything I know</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>';
+    var groups = actGroups().filter(function (g) { return g.n >= 1; });
+    h += '<section class="card"><h2 class="ltitle">What I know about myself</h2><p class="lsub">How flat I usually get doing each thing, from 1 (not flat) to 7 (completely flat).</p>' +
+      (groups.length ? '<ul class="acts">' + groups.map(actRow).join("") + "</ul>" : '<p class="small" style="margin-top:12px">Help me with a few stories and I\'ll start to know.</p>') + "</section>";
+    h += '<section class="card"><h2 class="ltitle">Patterns I\'m noticing</h2><p class="lsub">The more stories you help me with, the surer I get.</p>' + patterns().map(patternHtml).join("") + "</section>";
+    var al = anchorLines();
+    h += '<section class="card"><h2 class="ltitle">Compared with my practice stories</h2><p class="lsub">Eight made-up afternoons I rated, so I can read my real days on the same scale.</p>' +
+      (al.length ? al.map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") : '<p class="pbody">So far my real days have felt about how my practice stories said they would.</p>') +
+      '<div style="height:14px"></div><button class="btn ghost-btn" data-go="#practice">See my practice stories</button></section>';
+    var hl = helpLines();
+    h += '<section class="card"><h2 class="ltitle">What helps me</h2>' + (hl.length ? hl.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
       '<p class="lsub">When I ask for a little care, I\'ll remember what helped.</p>') + "</section>";
     return h + "</div>" + tabbar("learned");
   }
@@ -695,11 +788,12 @@
     else if (r.name === "care") html = viewCare(r.arg);
     else if (r.name === "stories") html = viewStories();
     else if (r.name === "practice") html = viewPractice();
-    else if (r.name === "learned") html = viewLearned();
+    else if (r.name === "learned") html = r.arg === "all" ? viewLearnedAll() : viewLearned();
     else if (r.name === "blob") html = viewBlobTab();
     else html = viewHome();
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
     if (overlay && overlay.type === "after") html += viewAfter(overlay);
+    if (overlay && overlay.type === "node") html += viewNode(overlay.id);
     app.innerHTML = html;
     if (obDir) { var ob = app.querySelector(".ob"); if (ob) ob.classList.add("in-" + obDir); obDir = ""; }
     if (r.name === "care") startCare(r.arg);
@@ -736,7 +830,8 @@
       render(); sc0 = app.querySelector(".screen"); if (sc0) sc0.scrollTop = top0;
     } else if (act === "read") {
       var n = nextStory(); if (n) { overlay = { type: "popup", id: n.id }; render(); }
-    } else if (act === "close") { overlay = null; render(); }
+    } else if (act === "close") { overlay = null; rerenderKeepScroll(); }
+    else if (act === "node") { overlay = { type: "node", id: k }; rerenderKeepScroll(); }
     else if (act === "d") {
       draft[k] = JSON.parse(v);
       if (k === "flat") { var host = document.getElementById("dblob"); if (host) host.innerHTML = blob(draft.flat, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "The blob, " + levelLabel(draft.flat) }); }
