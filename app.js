@@ -288,7 +288,7 @@
   }
 
   function tabbar(active) {
-    var tabs = [["home", "Home"], ["stories", "Journal"], ["learned", "Learned"], ["blob", "Blob"]];
+    var tabs = [["home", "Home"], ["stories", "Journal"], ["learned", "Journey"], ["blob", "Blob"]];
     return '<nav class="tabbar" aria-label="Main">' + tabs.map(function (t) {
       return '<a class="tab" href="#' + t[0] + '"' + (t[0] === active ? ' aria-current="page"' : "") + '><span class="ic">' + ICON[t[0]] + "</span>" + t[1] + "</a>";
     }).join("") + "</nav>";
@@ -556,7 +556,7 @@
 
   // ---------- practice stories (the anchors) ----------
   function viewPractice() {
-    var h = '<div class="screen"><div class="dhead"><button class="back" data-go="#learned" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
+    var h = '<div class="screen"><div class="dhead"><button class="back" data-go="#blob" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
       '<h1 class="title" style="margin-top:8px">My practice stories</h1><p class="lede">The same made-up afternoon, eight ways. How flat each one leaves me helps me read my real days.</p>';
     ANCHORS.forEach(function (c) {
       var v = anchorFlat(c.key);
@@ -576,13 +576,14 @@
     return d.whole != null ? d.whole : f.length ? Math.round(mean(f)) : null;
   }
   // each pattern states its finding, flips with the data, and shows the evidence it rests on
-  function patterns() {
-    var nDays = DAYS.filter(function (d) { return wholeOf(d) != null; }).length;
+  function patterns(upto) {
+    var DAYS_ = upto ? DAYS.filter(function (d) { return d.date <= upto; }) : DAYS, ALL_ = upto ? ALL.filter(function (m) { return m.date <= upto; }) : ALL;
+    var nDays = DAYS_.filter(function (d) { return wholeOf(d) != null; }).length;
     var conf = function (ok, small) { return nDays < 6 || !ok ? "Needs more days" : small ? "Not sure yet" : "Starting to see it"; };
     var P = [];
 
     var still = [], moving = [];
-    ALL.forEach(function (m) { if (answered(m)) (bodyMoving(m) ? moving : still).push(ans(m).flat); });
+    ALL_.forEach(function (m) { if (answered(m)) (bodyMoving(m) ? moving : still).push(ans(m).flat); });
     var aS = mean(still), aM = mean(moving), d1 = aS - aM, c1 = conf(still.length && moving.length, Math.abs(d1) < 1);
     var tS = { illo: "sitting-working", label: "Sitting still", sub: cap(levelLabel(aS)) }, tM = { illo: "walking-somewhere", label: "Moving", sub: cap(levelLabel(aM)) };
     P.push(c1 !== "Starting to see it" ? { id: "still", conf: c1, icon: "sitting-working",
@@ -598,7 +599,7 @@
         so: "After a big burst of moving, let's give myself a proper rest." });
 
     var busy = [], quiet = [];
-    DAYS.forEach(function (d) { var w = wholeOf(d); if (w != null) (d.steps >= 10000 ? busy : quiet).push(w); });
+    DAYS_.forEach(function (d) { var w = wholeOf(d); if (w != null) (d.steps >= 10000 ? busy : quiet).push(w); });
     var aB = mean(busy), aQ = mean(quiet), d2 = aQ - aB, c2 = conf(busy.length && quiet.length, Math.abs(d2) < 0.8);
     var tB = { illo: "busy-day", label: "10,000+ steps", sub: cap(levelLabel(aB)) }, tQ = { illo: "quiet-day", label: "Quieter days", sub: cap(levelLabel(aQ)) };
     P.push(c2 !== "Starting to see it" ? { id: "steps", conf: c2, icon: "quiet-day",
@@ -612,7 +613,7 @@
         evidence: "Based on " + plural(busy.length + quiet.length, "day") + ".", so: "On big step days, let's keep the evening light." });
 
     var aH = [], aL = [];
-    for (var i = 0; i < DAYS.length - 1; i++) { var w = wholeOf(DAYS[i]); if (w != null) (w >= 4 ? aH : aL).push(DAYS[i + 1].rhr); }
+    for (var i = 0; i < DAYS_.length - 1; i++) { var w = wholeOf(DAYS_[i]); if (w != null) (w >= 4 ? aH : aL).push(DAYS_[i + 1].rhr); }
     var d3 = mean(aH) - mean(aL), beats = Math.round(Math.abs(d3)), c3 = conf(aH.length && aL.length, Math.abs(d3) < 1.5);
     var diffWords = beats === 0 ? "about the same as after light days" : "only about " + plural(beats, "beat") + " " + (d3 > 0 ? "higher" : "lower");
     P.push(c3 !== "Starting to see it" ? { id: "rhr", conf: c3, icon: "sleeping",
@@ -653,9 +654,9 @@
       '<div class="pbtns" role="group" aria-label="' + esc(p.so) + '"><button class="pbtn" aria-pressed="' + (v === "try") + '" data-act="sugg" data-k="' + p.id + '" data-v="try">Let\'s try it</button>' +
       '<button class="pbtn" aria-pressed="' + (v === "no") + '" data-act="sugg" data-k="' + p.id + '" data-v="no">Not for us</button></div></div>';
   }
-  function anchorLines() {
+  function anchorLines(upto) {
     return ANCHORS.map(function (c) {
-      var real = ALL.filter(function (m) { var f = factors(m); return f.flat && cellKey(f.moving, f.due, f.behind) === c.key; }).map(function (m) { return ans(m).flat; });
+      var real = ALL.filter(function (m) { var f = factors(m); if (upto && m.date > upto) return false; return f.flat && cellKey(f.moving, f.due, f.behind) === c.key; }).map(function (m) { return ans(m).flat; });
       if (real.length < 2) return "";
       var diff = mean(real) - anchorFlat(c.key), when = "When I'm " + (c.moving ? "on the move" : "sitting still") + ", " + (c.due ? "something's due" : "nothing's due") + " and I'm " + (c.behind ? "behind" : "on top of things");
       return diff >= 2 ? when + ", real days hit me harder than I guessed." : diff <= -2 ? when + ", real days are easier than I guessed." : "";
@@ -672,31 +673,37 @@
 
   // ---------- learned: the path ----------
   // every milestone the blob can reach, in order; tap one to see what it has worked out there
+  function dayNo(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return i + 1; return null; }
+  // the first day (1-based) on which test(date) became true
+  function reachedOn(test) { for (var i = 0; i < DAYS.length; i++) if (test(DAYS[i].date)) return i + 1; return null; }
   function learnedNodes() {
     var N = [], first = DAYS[0].date, days = DAYS.length;
-    N.push({ id: "met", title: "We met", icon: '<span class="nstar">' + ICON.star + "</span>", state: "done",
+    N.push({ id: "met", title: "We met", day: 1, icon: '<span class="nstar">' + ICON.star + "</span>", state: "done",
       detail: '<p class="pbody">We met on ' + shortDate(first) + ". That's " + plural(days, "day") + " together so far.</p>" });
     actGroups().slice().sort(function (a, b) { return b.n - a.n; }).forEach(function (g) {
-      N.push({ id: "act-" + g.a, title: g.a, icon: illo(ACTIVITY_ILLO[g.a], 60), state: g.n >= 3 ? "done" : g.n ? "doing" : "todo", progress: Math.min(1, g.n / 3),
+      var dates = ALL.filter(function (m) { return answered(m) && activityOf(m) === g.a; }).map(function (m) { return m.date; }).sort();
+      N.push({ id: "act-" + g.a, title: g.a, day: dates.length >= 3 ? dayNo(dates[2]) : null, icon: illo(ACTIVITY_ILLO[g.a], 60), state: g.n >= 3 ? "done" : g.n ? "doing" : "todo", progress: Math.min(1, g.n / 3),
         detail: '<ul class="acts">' + actRow(g) + "</ul>" + '<p class="pbody">' + (g.n >= 3 ? "I know how " + VOICE[g.a] + " usually leaves me." : "Help me with " + (3 - g.n) + " more " + (3 - g.n === 1 ? "story" : "stories") + " where I was " + VOICE[g.a] + ", and I'll know how it leaves me.") + "</p>" });
     });
-    N.push({ id: "practice", title: "Practice stories", icon: '<span class="nstar">' + ICON.book + "</span>", state: "done",
+    N.push({ id: "practice", title: "Practice stories", day: 1, icon: '<span class="nstar">' + ICON.book + "</span>", state: "done",
       detail: '<p class="pbody">Eight made-up afternoons I rated, so I can read my real days on the same scale.</p><div style="height:14px"></div><button class="btn ghost-btn" data-go="#practice">See my practice stories</button>' });
     var nDays = DAYS.filter(function (d) { return wholeOf(d) != null; }).length;
     patterns().forEach(function (p) {
-      N.push({ id: "pat-" + p.id, title: p.tiles ? p.title : { still: "Still or moving?", steps: "Busy or quiet days?", rhr: "My resting heartbeat" }[p.id],
+      var pday = p.conf === "Starting to see it" ? reachedOn(function (d) { return patterns(d).filter(function (q) { return q.id === p.id; })[0].conf === "Starting to see it"; }) : null;
+      N.push({ id: "pat-" + p.id, day: pday, title: p.tiles ? p.title : { still: "Still or moving?", steps: "Busy or quiet days?", rhr: "My resting heartbeat" }[p.id],
         icon: illo(p.tiles ? p.tiles[0].illo : p.icon, 60), state: p.conf === "Starting to see it" ? "done" : p.conf === "Not sure yet" ? "doing" : "todo",
         progress: p.conf === "Not sure yet" ? 0.5 : Math.min(1, nDays / 6), detail: patternHtml(p) });
     });
     var al = anchorLines();
-    N.push({ id: "compare", title: "Real days vs practice", icon: illo("learning", 60), state: al.length ? "done" : "doing", progress: 0.5,
+    N.push({ id: "compare", title: "Real days vs practice", day: al.length ? reachedOn(function (d) { return anchorLines(d).length > 0; }) : null, icon: illo("learning", 60), state: al.length ? "done" : "doing", progress: 0.5,
       detail: (al.length ? al : ["So far my real days have felt about how my practice stories said they would."]).map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") });
     var hl = helpLines();
-    N.push({ id: "helps", title: "What helps me", icon: illo("breathing", 60), state: hl.length ? "done" : "todo", progress: 0,
+    var careDays = Object.keys(S.care).map(function (id) { return byId[id] ? dayNo(byId[id].date) : null; }).filter(Boolean).sort(function (a, b) { return a - b; });
+    N.push({ id: "helps", title: "What helps me", day: careDays[0] || null, icon: illo("breathing", 60), state: hl.length ? "done" : "todo", progress: 0,
       detail: (hl.length ? hl : ["When I ask for a little care, I'll remember what helped."]).map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") });
     // learned milestones first, then started ones, then the rest, so everything above the blob is done
     var rank = { done: 0, doing: 1, todo: 2 };
-    N = N.map(function (n, i) { return [n, i]; }).sort(function (a, b) { return rank[a[0].state] - rank[b[0].state] || a[1] - b[1]; }).map(function (x) { return x[0]; });
+    N = N.map(function (n, i) { return [n, i]; }).sort(function (a, b) { return rank[a[0].state] - rank[b[0].state] || (a[0].day || 99) - (b[0].day || 99) || a[1] - b[1]; }).map(function (x) { return x[0]; });
     var cur = N.filter(function (n) { return n.state !== "done"; })[0]; if (cur) cur.current = true;
     return N;
   }
@@ -705,35 +712,37 @@
     return '<svg class="nring" width="104" height="104" viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="52" r="' + r + '" fill="none" stroke="#e2ded9" stroke-width="7"/>' +
       '<circle cx="52" cy="52" r="' + r + '" fill="none" stroke="#f4b400" stroke-width="7" stroke-linecap="round" stroke-dasharray="' + (c * Math.max(0.06, p)).toFixed(1) + " " + c.toFixed(1) + '" transform="rotate(-90 52 52)"/></svg>';
   }
+  // the journey: milestones in the order they were reached, joined by a trail of small dots
   function viewLearned() {
     var N = learnedNodes();
     byNode = {}; N.forEach(function (n) { byNode[n.id] = n; });
-    var helped = ALL.filter(function (m) { return S.answers[m.id] || (m.example && answered(m)); }).length, found = patterns().filter(function (p) { return p.conf === "Starting to see it"; }).length;
-    var cur = N.filter(function (n) { return n.current; })[0], done = N.filter(function (n) { return n.state === "done"; }).length;
-    var h = '<div class="screen with-tabs path-screen">' +
-      '<div class="pstats" role="list">' +
-        '<span role="listitem" title="Days together"><i style="color:#f47d31">' + ICON.sun + "</i>" + DAYS.length + '<span class="vh"> days together</span></span>' +
-        '<span role="listitem" title="Stories you helped with"><i style="color:#5f2b89">' + ICON.stories + "</i>" + helped + '<span class="vh"> stories helped with</span></span>' +
-        '<span role="listitem" title="Patterns found"><i style="color:#e3a400">' + ICON.spark + "</i>" + found + '<span class="vh"> patterns found</span></span>' +
-        '<span role="listitem" title="Times you cared for me"><i style="color:#ff6fa8">' + ICON.heart + "</i>" + Object.keys(S.care).length + '<span class="vh"> times cared for</span></span></div>' +
-      '<div class="pbanner"><div><p class="pb-k">Day ' + DAYS.length + " · " + done + " of " + N.length + " learned</p><h1>" + (cur ? "Now learning: " + esc(cur.title) : "I've learned it all, for now") + "</h1></div>" +
-        '<a class="pb-btn" href="#learned/all" aria-label="See everything I know">' + ICON.list + "</a></div>" +
-      '<ol class="path">';
-    var X = [0, -62, -92, -62, 0, 62, 92, 62];
-    N.forEach(function (n, i) {
-      var x = X[i % X.length];
-      h += '<li class="pnode ' + n.state + (n.current ? " current" : "") + '" style="--x:' + x + 'px">' +
-        (n.current ? ring(n.progress || 0) : "") +
-        '<button class="nbtn" data-act="node" data-k="' + esc(n.id) + '" aria-label="' + esc(n.title + ", " + (n.state === "done" ? "learned" : n.current ? "learning now" : n.state === "doing" ? "started" : "not yet")) + '">' + n.icon + "</button>" +
-        '<span class="nlabel">' + esc(n.title) + "</span>";
-      if (n.current) {
-        // the blob sits beside where it's up to, with a star for each pattern it has found
-        h += '<span class="pblob" style="--side:' + (x > 0 ? -1 : 1) + '">' + blob(todayLevel(), { f: 1.15, box: 120, boxH: 112, noSphere: true, label: "The blob" }) +
-          '<span class="pstars">' + [0, 1, 2].map(function (j) { return '<i class="' + (j < found ? "on" : "") + '">' + ICON.star + "</i>"; }).join("") + "</span></span>";
-      }
-      h += "</li>";
+    var done = N.filter(function (n) { return n.state === "done"; }).length;
+    var STEP = 196, X = [0, -64, -94, -64, 0, 64, 94, 64], cx = function (i) { return X[i % X.length]; };
+    var h = '<div class="screen with-tabs"><p class="date">' + plural(DAYS.length, "day") + " together · " + done + " of " + N.length + ' learned</p><h1 class="title">Journey</h1>' +
+      '<div class="journey" style="height:' + (N.length * STEP - 40) + 'px">';
+    // side art in the space the path swings away from
+    var ART = ['<div class="jart" style="top:' + (1 * STEP) + 'px;--side:1">' + blob(todayLevel(), { f: 2, box: 190, boxH: 190, label: "The blob" }) + "</div>"];
+    ["learning", "busy-day", "sleeping", "quiet-day"].forEach(function (name, j) {
+      var seg = 5 + j * 4; if (seg >= N.length - 1) return;
+      ART.push('<div class="jart" style="top:' + (seg * STEP) + "px;--side:" + (X[seg % 8] > 0 ? -1 : 1) + '">' + illo(name, 150) + "</div>");
     });
-    return h + "</ol></div>" + tabbar("learned");
+    h += ART.join("");
+    N.forEach(function (n, i) {
+      var x = cx(i), y = i * STEP;
+      if (i < N.length - 1) {
+        // small circles leading on to the next milestone
+        var x2 = cx(i + 1), top = y + 128, room = STEP - 128;
+        [0.18, 0.5, 0.82].forEach(function (t) {
+          h += '<i class="jdot' + (N[i + 1].state === "done" ? " on" : "") + '" style="left:calc(50% + ' + (x + (x2 - x) * t).toFixed(0) + "px);top:" + (top + room * t - 5).toFixed(0) + 'px"></i>';
+        });
+      }
+      h += '<div class="pnode ' + n.state + (n.current ? " current" : "") + '" style="top:' + y + "px;--x:" + x + 'px">' +
+        (n.current ? ring(n.progress || 0) : "") +
+        '<button class="nbtn pal-' + (n.state === "done" ? S.look.bg : n.state === "doing" ? "glow" : "mist") + '" data-act="node" data-k="' + esc(n.id) + '" aria-label="' + esc(n.title + ", " + (n.day ? "day " + n.day : n.current ? "learning now" : "not yet")) + '">' + n.icon + "</button>" +
+        '<span class="nday" style="--side:' + (x > 0 ? -1 : 1) + '">' + (n.day ? "Day " + n.day : n.current ? "Now" : "") + "</span>" +
+        '<span class="nlabel">' + esc(n.title) + "</span></div>";
+    });
+    return h + "</div></div>" + tabbar("learned");
   }
   var byNode = {};
   function viewNode(id) {
@@ -742,11 +751,9 @@
       '<span class="pill' + (n.state === "done" ? " yes" : "") + '">' + (n.state === "done" ? "Learned" : n.current ? "Learning now" : n.state === "doing" ? "Started" : "Not yet") + "</span>" +
       '<h2 class="ntitle">' + esc(n.title) + "</h2>" + n.detail + '<div style="height:16px"></div><button class="btn" data-act="close">Got it</button></div>';
   }
-  // the full list, from the banner button
-  function viewLearnedAll() {
-    var h = '<div class="screen with-tabs learned"><div class="dhead"><button class="back" data-go="#learned" aria-label="Back to the path">' + ICON.back + '</button><span></span><span></span></div>' +
-      '<h1 class="title" style="margin-top:4px">Everything I know</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>';
-    var groups = actGroups().filter(function (g) { return g.n >= 1; });
+  // everything the blob knows, shown on the Blob tab
+  function knowHtml() {
+    var h = "", groups = actGroups().filter(function (g) { return g.n >= 1; });
     h += '<section class="card"><h2 class="ltitle">What I know about myself</h2><p class="lsub">How flat I usually get doing each thing, from 1 (not flat) to 7 (completely flat).</p>' +
       (groups.length ? '<ul class="acts">' + groups.map(actRow).join("") + "</ul>" : '<p class="small" style="margin-top:12px">Help me with a few stories and I\'ll start to know.</p>') + "</section>";
     h += '<section class="card"><h2 class="ltitle">Patterns I\'m noticing</h2><p class="lsub">The more stories you help me with, the surer I get.</p>' + patterns().map(patternHtml).join("") + "</section>";
@@ -757,7 +764,7 @@
     var hl = helpLines();
     h += '<section class="card"><h2 class="ltitle">What helps me</h2>' + (hl.length ? hl.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
       '<p class="lsub">When I ask for a little care, I\'ll remember what helped.</p>') + "</section>";
-    return h + "</div>" + tabbar("learned");
+    return h;
   }
 
   // ---------- blob tab ----------
@@ -767,6 +774,7 @@
     mine.forEach(function (m) { kinds[kind(isMoving(m), ans(m).flat)].push(m); });
     var h = '<div class="screen with-tabs"><p class="date">About the blob</p><h1 class="title">The blob</h1>' +
       '<div style="display:flex;justify-content:center;margin-top:8px">' + blob(lv, { f: 2.4, box: 280, label: "The blob" }) + "</div>" +
+      '<h2 class="khead">Everything I know</h2>' + knowHtml() +
       '<section class="card"><h2 class="section">My feelings so far</h2><p class="small" style="margin-top:4px">Every moment you helped me with, at how flat I got.</p>';
     Object.keys(kinds).forEach(function (k) {
       var list = kinds[k];
@@ -788,7 +796,7 @@
     else if (r.name === "care") html = viewCare(r.arg);
     else if (r.name === "stories") html = viewStories();
     else if (r.name === "practice") html = viewPractice();
-    else if (r.name === "learned") html = r.arg === "all" ? viewLearnedAll() : viewLearned();
+    else if (r.name === "learned" || r.name === "journey") html = viewLearned();
     else if (r.name === "blob") html = viewBlobTab();
     else html = viewHome();
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
