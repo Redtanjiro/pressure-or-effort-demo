@@ -67,6 +67,18 @@
   function shortDate(s) { var d = asDate(s); return WD[d.getDay()].slice(0, 3) + " " + d.getDate() + " " + MO[d.getMonth()].slice(0, 3); }
   function clock(min) { var h = Math.floor(min / 60) % 24, m = min % 60; return (h % 12 || 12) + ":" + (m < 10 ? "0" : "") + m; }
   function ampm(min) { return clock(min) + " " + (Math.floor(min / 60) % 24 < 12 ? "am" : "pm"); }
+  function clockMin(t) { var p = t.split(":"); return +p[0] * 60 + +p[1]; }
+  function sleepText(min) { return Math.floor(min / 60) + "h " + ("0" + min % 60).slice(-2) + "m"; }
+  // last night, against the 7 nights before it
+  function nightOf(d) {
+    var i = DAYS.indexOf(d), prev = DAYS.slice(Math.max(0, i - 7), i), sl = d.sleep || {};
+    var mSleep = mean(prev.filter(function (x) { return x.sleep; }).map(function (x) { return x.sleep.minutesAsleep; }));
+    var mHrv = mean(prev.filter(function (x) { return x.hrv != null; }).map(function (x) { return x.hrv; }));
+    var y = DAYS[i - 1];
+    return { asleep: sl.minutesAsleep, short: sl.minutesAsleep < 390 || (mSleep && sl.minutesAsleep < mSleep - 45), long: mSleep && sl.minutesAsleep > mSleep + 45,
+      lowHrv: d.hrv != null && prev.length >= 3 && d.hrv <= mHrv - 8, hrvVs: d.hrv == null || !mHrv ? 0 : d.hrv - mHrv,
+      tennis: (d.exercise || []).some(function (e) { return e.type === "Tennis"; }), tennisYesterday: !!(y && (y.exercise || []).some(function (e) { return e.type === "Tennis"; })) };
+  }
   function dayBy(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i]; return null; }
 
   // ---------- moments ----------
@@ -75,6 +87,8 @@
   var MOVING = { "Exercising": true, "Walking somewhere": true, "On its feet working": true };
   function watchGuess(d, r) {
     var lift = r.bpm - d.rhr;
+    // the Fitbit recognised a tennis session around this story
+    if ((d.exercise || []).some(function (e) { var a = clockMin(e.start); return e.type === "Tennis" && r.peakMin >= a && r.peakMin <= a + e.mins; })) return "Exercising";
     if (r.steps10 > 250) return r.steps10 > 1000 && lift >= 60 ? "Exercising" : r.mins >= 45 ? "On its feet working" : "Walking somewhere";
     return r.peakMin >= 480 && r.peakMin < 1140 ? "Sitting working" : "Sitting relaxing";
   }
@@ -82,7 +96,7 @@
   DAYS.forEach(function (d) {
     d.moments = d.rises.map(function (r) {
       var m = { id: d.date + "|" + r.peakMin, date: d.date, day: d, peakMin: r.peakMin, start: r.start, end: r.end, bpm: r.bpm,
-        lift: Math.round(r.bpm - d.rhr), steps10: r.steps10, mins: r.mins, watch: watchGuess(d, r), example: r.answer,
+        lift: Math.round(r.bpm - d.rhr), steps10: r.steps10, mins: r.mins, watch: watchGuess(d, r), example: r.answer, exampleCare: r.care,
         score: (r.bpm - d.rhr) * Math.sqrt(r.mins) };
       ALL.push(m);
       return m;
@@ -94,8 +108,14 @@
   function ans(m) {
     var u = S.answers[m.id];
     if (u) return u;
-    if (m.example) return { activity: m.watch, due: m.example.due, onTop: m.example.onTop, flat: m.example.flat, cantRemember: false };
+    if (m.example) return { activity: m.example.activity || m.watch, due: m.example.due, onTop: m.example.onTop, flat: m.example.flat, cantRemember: false };
     return null;
+  }
+  // a care result: the user's own wins over the example; old saves had type instead of mode
+  function careOf(m) {
+    var c = S.care[m.id];
+    if (c) return c.mode !== undefined || !c.type ? c : Object.assign({ mode: c.type === "rest" ? "rest" : "breathe" }, c);
+    return m.exampleCare && m.exampleCare.mode ? m.exampleCare : null;
   }
   function answered(m) { var a = ans(m); return !!(a && !a.cantRemember && a.flat); }
   function activityOf(m) { var a = ans(m); return (a && a.activity) || m.watch; }
@@ -145,7 +165,12 @@
     var flat = level(n ? (mean(flats) * n + seed * 0.5) / (n + 0.5) : seed);
     var spread = n ? Math.max.apply(null, flats) - Math.min.apply(null, flats) : 0;
     var stage = n < 3 ? 1 : n >= 5 && spread <= 2 && due != null && onTop != null ? 3 : 2;
-    return { stage: stage, flat: flat, n: n, due: due, onTop: onTop };
+    // last night counts too: a short night or a less steady heart makes Blob guess a little flatter
+    var nt = nightOf(m.day), reasons = [];
+    if (nt.short) reasons.push("short night");
+    if (nt.lowHrv) reasons.push("less steady heart");
+    if (reasons.length) { flat = Math.min(7, flat + 1); if (onTop == null) onTop = false; }
+    return { stage: stage, flat: flat, n: n, due: due, onTop: onTop, reasons: reasons };
   }
   function openAppraisal(g, dr) {
     dr = dr || {};
@@ -172,6 +197,15 @@
   function wordChips(m) {
     var f = factors(m);
     return '<span class="chip">' + (f.moving ? "On the move" : "Sitting still") + " · " + (f.long ? "most of an hour" : "a little while") + '</span><span class="chip">Heart ' + (f.high ? "started racing" : "picked up") + "</span>";
+  }
+  // up to two plain context chips from last night and the day
+  function dayChips(m) {
+    var nt = nightOf(m.day), c = [];
+    if (nt.short) c.push("After a short night");
+    if (nt.lowHrv) c.push("Heart less steady overnight");
+    if (nt.tennis) c.push("Tennis day");
+    if (m.day.steps >= 10000) c.push("Busy day");
+    return c.slice(0, 2).map(function (x) { return '<span class="chip">' + x + "</span>"; }).join("");
   }
   function tileFor(m, size) {
     var f = factors(m);
@@ -420,7 +454,7 @@
     var t = todayDay(), flats = t.moments.filter(answered).map(function (m) { return careAfter(m); });
     return flats.length ? Math.max(1, Math.round(mean(flats))) : 2;
   }
-  function careAfter(m) { var c = S.care[m.id], a = ans(m); return c && c.settled ? Math.max(1, a.flat - 2) : a.flat; }
+  function careAfter(m) { var c = careOf(m), a = ans(m); return c && c.settled ? Math.max(1, a.flat - 2) : a.flat; }
   var LEVEL_LINE = { 1: "Round and bouncing today.", 2: "Mostly bouncing along today.", 3: "A little squashed today.", 4: "Halfway flattened today.", 5: "Quite flat today.", 6: "Very flat today.", 7: "Completely flattened today." };
   function homeChart(d) {
     var W = 320, H = 150, L = 6, R = 6, T = 14, B = 22, from = 360, to = 1080;
@@ -438,9 +472,11 @@
       var h = Math.min(p[2], 600) / 600 * 22;
       g += '<rect x="' + (x(p[0]) - 1.2).toFixed(1) + '" y="' + (H - B - h).toFixed(1) + '" width="2.4" height="' + h.toFixed(1) + '" rx="1" fill="#2d2c2b" fill-opacity=".12"/>';
     });
-    var th = d.rhr + 25;
-    g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(th).toFixed(1) + '" y2="' + y(th).toFixed(1) + '" stroke="#5c5853" stroke-width="1" stroke-dasharray="4 4" stroke-opacity=".6"/>' +
-      '';
+    if (d.sleep && clockMin(d.sleep.wake) > from) {
+      var wx = x(Math.min(to, clockMin(d.sleep.wake)));
+      g = '<rect x="' + L + '" y="' + T + '" width="' + (wx - L).toFixed(1) + '" height="' + (H - T - B) + '" rx="6" fill="#2d2c2b" fill-opacity=".06"/>' +
+        '<text x="' + (L + 6) + '" y="' + (T + 14) + '">asleep</text>' + g;
+    }
     var pts = d.series.filter(function (p) { return p[0] >= from && p[0] <= NOW; });
     g += '<path d="' + pts.map(function (p, i) { return (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1); }).join("") + '" fill="none" stroke="#2d2c2b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
     d.moments.forEach(function (m) {
@@ -457,9 +493,33 @@
   function homeToday() {
     var list = storiesOf(todayDay()).slice().sort(function (a, b) { return b.peakMin - a.peakMin; });
     var done = list.filter(answered);
-    if (done.length) { var a = ans(done[0]); return { k: a.flat, moving: !!MOVING[a.activity] }; }
-    if (list.length) return { k: selfGuess(list[0]).flat, moving: bodyMoving(list[0]), guessed: true };
+    if (done.length) { var a = ans(done[0]); return { k: a.flat, moving: !!MOVING[a.activity], m: done[0] }; }
+    if (list.length) return { k: selfGuess(list[0]).flat, moving: bodyMoving(list[0]), guessed: true, m: list[0] };
     return { k: null };
+  }
+  // last night and today, from the Fitbit; Blob only talks about itself
+  function lastNight(d, nStories) {
+    var nt = nightOf(d), sl = d.sleep || {};
+    var line = resolveWinddowns() || (nt.short ? "I slept less than usual, so I might flatten more easily today." : nt.lowHrv ? "My heart was less steady overnight." :
+      nt.tennisYesterday ? "My heart was steadier after yesterday's tennis." : "I slept about as usual.");
+    var tile = function (v, label, sub) { return '<div class="stat"><b>' + v + "</b><span>" + label + "</span>" + (sub ? '<i class="sub">' + sub + "</i>" : "") + "</div>"; };
+    return '<section class="lastnight"><h2 class="section">Last night and today</h2><p class="nightline">' + line + '</p><div class="stats six">' +
+      tile(sl.minutesAsleep ? sleepText(sl.minutesAsleep) : "–", "Slept", nt.short ? "less than usual" : nt.long ? "more than usual" : "usual") +
+      tile(d.hrv != null ? Math.round(d.hrv) + " ms" : "–", "Heart steadiness", "HRV, " + (nt.hrvVs <= -6 ? "lower" : nt.hrvVs >= 6 ? "higher" : "usual")) +
+      tile(Math.round(d.rhr), "Resting heartbeat", "bpm") + tile(d.steps.toLocaleString("en-AU"), "Steps") +
+      tile(d.azm ? d.azm.total : "–", "Active minutes", "Active Zone Minutes") + tile(nStories, "Stories") + "</div></section>";
+  }
+  // a wind down is checked the next morning: settled if Blob fell asleep within 12 minutes; said once
+  function resolveWinddowns() {
+    var said = "";
+    Object.keys(S.care).forEach(function (id) {
+      var c = S.care[id], m = byId[id]; if (!m || c.mode !== "winddown" || c.settled !== null) return;
+      var next = DAYS[DAYS.indexOf(m.day) + 1]; if (!next || !next.sleep) return;
+      c.settled = next.sleep.minutesToFallAsleep <= 12;
+      if (c.settled && !c.noted) { c.noted = true; said = "I fell asleep faster after we wound down."; }
+      save();
+    });
+    return said;
   }
   var FEEL = { 1: "I'm not flat at all today.", 2: "I'm barely flat today. Mostly bouncing along.", 3: "I'm a little flat today.", 4: "I'm halfway flat today.",
     5: "I'm quite flat today.", 6: "I'm very flat today.", 7: "I'm completely flat today." };
@@ -477,20 +537,21 @@
       list.length ? { t: "All caught up", b: "Thanks for helping me today.", btn: '<a class="textbtn left" href="#stories">See my stories</a>' } :
       { t: "No stories yet", b: "When my heart races today, I'll tell you about it this evening.", btn: "" };
     h += '<section class="card homecard storiescard"><span class="tile t64">' + illo("heart-racing", 60) + '</span><div class="grow"><h2 class="section">' + sc.t + '</h2><p class="small">' + sc.b + "</p></div>" + sc.btn + "</section>";
-    // 3. destress, suggested from today's kind
-    var kd = k ? kind(t.moving, k) : "Neither", rest = kd === "Effort";
+    // 3. destress: Blob's pick for today plus the next best way that suits today
+    var kd = k ? kind(t.moving, k) : "Neither";
     var body = { Pressure: "I'm feeling flat. Breathing slowly helps me puff back up.", Overload: "Can we slow down first?", Effort: "I've been busy. A rest would be nice.", Neither: "Want to take a breath with me anyway?" }[kd];
+    var first = (t.m && pickCare(t.m)) || "breathe", second = nextBest(kd === "Neither" ? "Pressure" : kd, first);
     var primary = !waiting && k >= 5;
-    var opt = function (on, href, art, title, sub) {
-      return '<a class="dtile' + (on ? " on" : "") + (on && primary ? " primary" : "") + '" href="' + href + '" aria-label="' + (on ? "Suggested: " : "") + title + ", " + sub + '">' +
-        (on ? '<span class="sugg" aria-hidden="true">Suggested</span>' : "") + illo(art, 56) + "<b>" + title + "</b><span>" + sub + "</span></a>";
+    var opt = function (id, on) {
+      var md = MODES[id];
+      return '<a class="dtile' + (on ? " on" : "") + (on && primary ? " primary" : "") + '" href="#care/free/' + id + '" aria-label="' + (on ? "Suggested: " : "") + md.title + ", " + md.len + '">' +
+        (on ? '<span class="sugg" aria-hidden="true">Suggested</span>' : "") + modeIllo(id, 56) + "<b>" + md.title + "</b><span>" + md.len + "</span></a>";
     };
-    h += '<section class="card homecard"><h2 class="section">Take a moment with me</h2><p class="small">' + body + '</p><div class="dtiles">' +
-      opt(!rest, "#care/free", "breathing", "Breathe with me", "1 minute") + opt(rest, "#care/free-rest", "water-and-rest", "Rest with me", "30 seconds") +
-      '</div><a class="textbtn left together" href="#hangout">Or breathe together with other blobs</a></section>';
+    h += '<section class="card homecard"><h2 class="section">Take a moment with me</h2><p class="small">' + body + '</p><div class="dtiles">' + opt(first, true) + opt(second, false) +
+      '</div><a class="textbtn left together" href="#unwind">More ways to unwind</a></section>';
     // 4. the data
     h += '<section class="card"><div class="chart-head"><h2 class="section">Its heartbeat today</h2><div class="legend"><span><i class="dot" style="background:#f47d31"></i>Moving</span><span><i class="dot" style="background:#5f2b89"></i>Still</span></div></div>' + homeChart(d) + "</section>" +
-      '<div class="stats"><div class="stat"><b>' + Math.round(d.rhr) + '</b><span>resting heartbeat</span></div><div class="stat"><b>' + d.steps.toLocaleString("en-AU") + '</b><span>steps</span></div><div class="stat"><b>' + list.length + "</b><span>stories</span></div></div>";
+      lastNight(d, list.length);
     // 5. together, and the rest of what Blob knows
     h += hangoutCard() +
       '<div class="hometiles">' +
@@ -536,7 +597,7 @@
     var h = '<div class="screen"><div class="dhead"><button class="back" data-act="storyback" aria-label="Not now">' + ICON.back + "</button>" +
       '<div class="pdots" role="img" aria-label="Story ' + (i + 1) + " of " + list.length + '">' + list.map(function (_, j) { return "<i" + (j === i ? ' class="on"' : "") + "></i>"; }).join("") + '</div><span></span></div><h1 class="vh">Story ' + (i + 1) + " of " + list.length + "</h1>" +
       '<div style="display:flex;justify-content:center" id="dblob">' + blob(lv, { f: 2.2, pal: "dusk", box: 300, boxH: 260, label: "Blob, " + levelLabel(lv) }) + "</div>" +
-      '<div class="storycard"><p class="vig">' + esc(vignette(m, dr)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + "</span>" + wordChips(m) +
+      '<div class="storycard"><p class="vig">' + esc(vignette(m, dr)) + '</p><div class="chips" style="margin-top:14px"><span class="chip">' + ampm(m.peakMin) + "</span>" + wordChips(m) + dayChips(m) +
         (d.context ? '<span class="chip">' + esc(d.context) + "</span>" : "") + "</div></div>" +
       '<div class="q"><h3>What was I doing?</h3><p class="help">My watch thinks I was ' + VOICE[m.watch] + '.</p><div class="opts" role="radiogroup" aria-label="What was I doing?">' +
       ACTS.map(function (a) { return opt("activity", a, a); }).join("") + "</div></div>";
@@ -563,18 +624,84 @@
     if (g.stage === 3 && Math.abs(a.flat - g.flat) >= 2) fixes.push("it left me " + levelWord(a.flat));
     return fixes.length ? "Oh, so " + fixes.join(", and ") + ". I'll remember that." : "";
   }
-  var CARE_ASK = { Pressure: "I think I need to breathe.", Overload: "Can we slow down first?", Effort: "I just need to rest.", Neither: "I'm fine, actually. Not every rise is stress." };
+  // ---------- ways to unwind: one place for every mode's copy and timing ----------
+  // new illustrations (sigh, soften, look-around, wind-down) get drawn later; add their names to DRAWN once the files exist
+  var DRAWN = {};
+  var MODES = {
+    breathe: { title: "Breathe with me", sub: "In for 4, out for 6. Follow my shape.", len: "1 minute", ms: 60000, kinds: ["Pressure"], state: "breathe", illo: "breathing", ask: "I think I need to breathe." },
+    sigh: { title: "Sigh with me", sub: "Two breaths in through your nose, then one long breath out.", len: "1½ minutes", ms: 90000, kinds: ["Pressure"], state: "sigh", illo: "sigh", fallback: "breathing", speed: 1.2, ask: "That was a lot. Can we sigh it out?" },
+    soften: { title: "Soften with me", sub: "Squeeze, then let go. One part at a time.", len: "1 minute", ms: 60000, kinds: ["Pressure"], state: "soften", illo: "soften", fallback: "sitting-relaxing", speed: 0.9, ask: "I'm all tight. Can we let go a bit?" },
+    look: { title: "Look around with me", sub: "Let's notice what's around us before anything else.", len: "1 minute", ms: 60000, kinds: ["Overload"], state: "look", illo: "look-around", fallback: "learning", speed: 0.9, ask: "Can we slow down first?" },
+    walk: { title: "Walk with me", sub: "A slow 5 minute walk. You can leave your phone.", len: "5 minutes", ms: 300000, kinds: ["Pressure"], state: "walk", illo: "walking-somewhere", ask: "I've been still a long time. Walk with me?" },
+    stretch: { title: "Stretch with me", sub: "Reach up, lean, roll your shoulders.", len: "1 minute", ms: 60000, kinds: ["Effort"], state: "stretch", illo: "stretch", ask: "I've been on my feet. Stretch with me?" },
+    rest: { title: "Rest with me", sub: "Have some water, stretch, or sit for a minute. No need to soothe anything.", len: "30 seconds", ms: 30000, kinds: ["Effort"], state: "wait", illo: "water-and-rest", ask: "I just need to rest." },
+    winddown: { title: "Wind down with me", sub: "Lights low. In for 4, out for 8.", len: "3 minutes", ms: 180000, kinds: ["Pressure"], state: "winddown", illo: "wind-down", fallback: "sleeping", ask: "It's late. Can we wind down?" }
+  };
+  var MODE_ORDER = ["breathe", "sigh", "soften", "look", "walk", "stretch", "rest", "winddown"];
+  function modeIllo(id, size) { var md = MODES[id]; return illo(md.fallback && !DRAWN[md.illo] ? md.fallback : md.illo, size); }
+  // what each mode has done for Blob, from every story's care (the user's own, else the example)
+  function modeStats() {
+    var by = {};
+    ALL.forEach(function (m) {
+      var c = careOf(m); if (!c || !c.mode || !MODES[c.mode] || c.settled === null || c.settled === undefined) return;
+      var x = by[c.mode] = by[c.mode] || { mode: c.mode, n: 0, ok: 0 };
+      x.n++; if (c.settled) x.ok++;
+    });
+    return MODE_ORDER.filter(function (id) { return by[id]; }).map(function (id) { var x = by[id]; x.helps = x.ok >= 2 && x.ok / x.n >= 0.67; return x; });
+  }
+  // the modes suiting a kind that have been tried, best helper first
+  function helpedBy(k) {
+    return modeStats().filter(function (x) { return MODES[x.mode].kinds.indexOf(k) >= 0; })
+      .sort(function (a, b) { return b.ok / b.n - a.ok / a.n || b.n - a.n; });
+  }
+  // m = a story (or null for a free session). Returns a mode id, or null when no care is needed.
+  function pickCare(m) {
+    var c = careFor(m), k = c.k;
+    if (k === "Neither") return null;
+    // Blob learns: prefer a mode that settled it at least twice, at least 2/3 of the time
+    var best = helpedBy(k);
+    return best.length && best[0].ok >= 2 && best[0].ok / best[0].n >= 0.67 ? best[0].mode : careRule(m, c);
+  }
+  // the starting rule, from the kind of story and the time of day
+  function careRule(m, c) {
+    var k = c.k, lv = c.lv, t = m ? m.peakMin : NOW;
+    return k === "Effort" ? (m && m.mins >= 45 ? "stretch" : "rest")
+      : k === "Overload" ? "look"
+      : lv >= 6 ? "sigh"
+      : t >= 1200 ? "winddown"
+      : m && m.mins >= 40 && t < 1080 ? "walk"
+      : m && m.mins < 30 ? "soften"
+      : "breathe";
+  }
+  // the next best mode for a kind, after the one already suggested
+  function nextBest(k, not) {
+    var helped = helpedBy(k).map(function (x) { return x.mode; });
+    var pool = helped.concat(MODE_ORDER.filter(function (id) { return MODES[id].kinds.indexOf(k) >= 0; }), ["breathe", "rest"]);
+    return pool.filter(function (id) { return id !== not; })[0];
+  }
   function viewAfter(o) {
-    var m = byId[o.id], a = ans(m), k = careFor(m).k;
-    var CARE_ILLO = { Pressure: "breathing", Overload: "breathing", Effort: "water-and-rest" };
+    var m = byId[o.id], a = ans(m), mode = pickCare(m);
     var showBlob = o.reflect ? '<div class="illo-hero">' + illo("learning", 120) + "</div>" :
-      CARE_ILLO[k] ? '<div class="illo-hero">' + illo(CARE_ILLO[k], 120) + "</div>" : blob(a.flat, { f: 1.6, box: 170, boxH: 150 });
+      mode ? '<div class="illo-hero">' + modeIllo(mode, 120) + "</div>" : blob(a.flat, { f: 1.6, box: 170, boxH: 150 });
     var h = '<div class="backdrop"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Blob"><div class="grab"></div><div style="display:flex;justify-content:center">' + showBlob + "</div>";
     if (o.reflect) h += '<p class="vig" style="font-weight:500">' + esc(o.reflect) + "</p>";
-    h += '<h2 style="margin-top:14px">' + CARE_ASK[k] + "</h2><div style=\"height:16px\"></div>";
-    if (k === "Neither") h += '<button class="btn" data-act="afternext">' + (o.last ? "Back to its day" : "Next story") + "</button>";
-    else h += '<button class="btn" data-go="#care/' + m.id + '">' + (k === "Effort" ? "Okay, let's rest" : k === "Overload" ? "Let's slow down" : "Breathe with me") + '</button><button class="textbtn" data-act="afternext">Not now</button>';
+    h += '<h2 style="margin-top:14px">' + (mode ? MODES[mode].ask : "I'm fine, actually. Not every rise is stress.") + "</h2><div style=\"height:16px\"></div>";
+    if (!mode) h += '<button class="btn" data-act="afternext">' + (o.last ? "Back to its day" : "Next story") + "</button>";
+    else h += '<button class="btn" data-go="#care/' + m.id + "/" + mode + '">' + MODES[mode].title + '</button><button class="textbtn" data-act="afternext">Not now</button>' +
+      '<button class="textbtn" data-go="#unwind/' + m.id + '">Something else</button>';
     return h + "</div>";
+  }
+  // every way to unwind, with Blob's pick marked; never locked, never counted
+  function viewUnwind(id) {
+    var m = id ? byId[id] : null, t = m ? null : homeToday(), pick = (m ? pickCare(m) : t.m && pickCare(t.m)) || "breathe", base = m ? "#care/" + m.id + "/" : "#care/free/";
+    var row = function (href, art, title, len, on) {
+      return '<li><a class="urow' + (on ? " on" : "") + '" href="' + href + '" aria-label="' + (on ? "Suggested: " : "") + title + (len ? ", " + len : "") + '"><span class="tile t64">' + art + '</span><span class="grow"><b>' + title + "</b>" +
+        (len ? "<span>" + len + "</span>" : "") + "</span>" + (on ? '<span class="sugg-pill" aria-hidden="true">Suggested</span>' : "") + "</a></li>";
+    };
+    return '<div class="screen"><div class="dhead"><button class="back" data-act="goback" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
+      '<h1 class="title" style="margin-top:4px">Ways to unwind</h1><p class="lede">Pick whatever feels right. I\'ll remember what helps me.</p><ul class="unwind">' +
+      [pick].concat(MODE_ORDER.filter(function (x) { return x !== pick; })).map(function (x) { return row(base + x, modeIllo(x, 60), MODES[x].title, MODES[x].len, x === pick); }).join("") +
+      row("#hangout", illo("breathing", 60), "Breathe together", "With other blobs, in Hangout", false) + '</ul><div style="height:32px"></div></div>';
   }
 
   // ---------- care ----------
@@ -586,53 +713,81 @@
     return { k: m ? kind(moving, lv) : "Pressure", lv: lv };
   }
   var careRun = null;
-  function viewCare(id) {
-    var m = byId[id], c = id === "free-rest" ? { k: "Effort", lv: 4 } : careFor(m), k = c.k, lv = c.lv;
-    var title = k === "Effort" ? "Rest with me" : "Breathe with me";
-    var sub = k === "Effort" ? "Have some water, stretch, or sit for a minute. No need to soothe anything." : k === "Overload" ? "Let's just pause for a moment first." : "In for 4, out for 6. Follow my shape.";
-    return '<div class="screen"><div class="care"><div class="dhead"><button class="back" data-act="careexit" aria-label="Not now">' + ICON.back + "</button><span></span><span></span></div>" +
-      '<div class="ob-blob" id="careblob">' + blob(lv, { f: 2.4, state: k === "Effort" ? "wait" : "breathe", pal: "sage", box: 300 }) + "</div>" +
-      "<h1>" + title + '</h1><p class="small" style="margin-top:8px">' + sub + '</p><p class="cue" id="cue" aria-live="polite" style="margin-top:20px"></p>' +
-      '<p class="bpm" id="bpm"></p><button class="btn" data-act="caredone" id="caredone">I\'m done</button><button class="textbtn" data-act="careexit">Not now</button></div></div>';
+  // #care/<story>, #care/<story>/<mode>, #care/free/<mode>; #care/free and #care/free-rest stay as breathe and rest
+  function careArgs(arg) {
+    var p = (arg || "").split("/"), id = p[0], m = byId[id] || null;
+    var mode = p[1] || (id === "free-rest" ? "rest" : id === "free" ? "breathe" : pickCare(m) || "breathe");
+    if (!MODES[mode]) mode = "breathe";
+    return { id: id, m: m, mode: mode, c: m ? careFor(m) : { k: MODES[mode].kinds[0], lv: 4 } };
   }
-  function startCare(id) {
+  function viewCare(arg) {
+    var a = careArgs(arg), md = MODES[a.mode];
+    return '<div class="screen"><div class="care mode-' + a.mode + '"><div class="dhead"><button class="back" data-act="careexit" aria-label="Not now">' + ICON.back + "</button><span></span><span></span></div>" +
+      '<div class="ob-blob" id="careblob">' + blob(a.c.lv, { f: 2.4, state: md.state, pal: "sage", box: 300 }) + "</div>" +
+      "<h1>" + md.title + '</h1><p class="small" style="margin-top:8px">' + md.sub + '</p><p class="cue" id="cue" aria-live="polite" style="margin-top:20px"></p>' +
+      '<p class="bpm" id="bpm"></p><button class="btn" data-act="caredone" id="caredone">I\'m done</button><button class="textbtn" data-act="careexit">Not now</button></div>' +
+      (a.mode === "winddown" ? '<div class="dimmer" id="dimmer"></div>' : "") + "</div>";
+  }
+  var SOFTEN = [["Squeeze your hands into fists…", "…and let go."], ["Lift your shoulders to your ears…", "…and drop them."], ["Clench your jaw…", "…and let it go."], ["Scrunch your face…", "…and soften."]];
+  var LOOK = ["Find 5 things you can see.", "4 things you can touch.", "3 things you can hear.", "2 things you can smell.", "1 slow breath with me."];
+  var LOOK_EYES = [[-1, 0], [0, -1], [1, 0], [0, 1], [0, 0]];
+  var STRETCH = ["Reach up tall.", "Lean left.", "Lean right.", "Roll your shoulders back."];
+  function startCare(arg) {
     stopCare();
-    var m = byId[id], k = id === "free-rest" ? "Effort" : careFor(m).k, rest = m ? m.day.rhr : todayDay().rhr;
-    var start = m ? m.bpm - 6 : rest + 22, t0 = Date.now(), total = k === "Effort" ? 30000 : 60000, pause = k === "Overload" ? 5000 : 0;
-    var cue = document.getElementById("cue"), bpm = document.getElementById("bpm");
-    careRun = { id: id, k: k, start: start, rest: rest, t0: t0, total: total + pause, timer: setInterval(tick, 250), settled: false };
+    var a = careArgs(arg), md = MODES[a.mode], m = a.m, k = a.c.k, rest = m ? m.day.rhr : todayDay().rhr;
+    var start = m ? m.bpm - 6 : rest + 22, t0 = Date.now(), pause = a.mode === "breathe" && k === "Overload" ? 5000 : 0, total = md.ms, speed = md.speed || 1;
+    var cue = document.getElementById("cue"), bpm = document.getElementById("bpm"), stage = document.querySelector("#careblob .bstage");
+    careRun = { id: a.id, mode: a.mode, k: k, start: start, rest: rest, t0: t0, total: total + pause, timer: setInterval(tick, 250), walked: 0, lastStep: t0 };
+    if (a.mode === "winddown") {
+      // the light dims and the sphere drifts from sage to dusk over the three minutes
+      var dim = document.getElementById("dimmer"); if (dim) setTimeout(function () { dim.classList.add("on"); }, 30);
+      var sph = stage && stage.querySelector(".sphere");
+      if (sph) { var dusk = sph.cloneNode(); dusk.className = "sphere pal-dusk duskfade"; sph.parentNode.insertBefore(dusk, sph.nextSibling); setTimeout(function () { dusk.classList.add("on"); }, 30); }
+    }
+    var lastCue = "";
+    function say(text) { if (cue && text !== lastCue) { lastCue = text; cue.textContent = text; } }
     function tick() {
       var t = Date.now() - t0, frac = Math.min(1, Math.max(0, t - pause) / total);
-      var now = Math.round(rest + 4 + (start - rest - 4) * Math.exp(-3 * frac));
+      var now = Math.round(rest + 4 + (start - rest - 4) * Math.exp(-3 * frac * speed));
       careRun.bpmNow = now;
       if (bpm) bpm.innerHTML = "My heart <b>" + now + "</b> bpm · resting " + Math.round(rest);
-      if (cue) {
-        if (k === "Effort") cue.textContent = "Resting…";
-        else if (t < pause) cue.textContent = "Pause…";
-        else cue.textContent = ((t - pause) % 10000) < 4000 ? "Breathe in" : "Breathe out";
+      var tt = t - pause;
+      if (a.mode === "rest") say("Resting…");
+      else if (t < pause) say("Pause…");
+      else if (a.mode === "breathe") say(tt % 10000 < 4000 ? "Breathe in" : "Breathe out");
+      else if (a.mode === "sigh") { var c9 = tt % 9000; say(c9 < 2000 ? "Breathe in" : c9 < 3000 ? "A little more" : "All the way out"); }
+      else if (a.mode === "soften") { var s15 = SOFTEN[Math.floor(tt / 15000) % 4]; say(tt % 15000 < 5000 ? s15[0] : s15[1]); }
+      else if (a.mode === "look") {
+        var i = Math.min(4, Math.floor(tt / 12000)); say(LOOK[i]);
+        if (stage) { stage.style.setProperty("--lx", LOOK_EYES[i][0]); stage.style.setProperty("--ly", LOOK_EYES[i][1]); }
+      } else if (a.mode === "stretch") say(STRETCH[Math.floor(tt / 15000) % 4]);
+      else if (a.mode === "winddown") say(tt % 12000 < 4000 ? "Breathe in" : "Breathe out");
+      else if (a.mode === "walk") {
+        // steps come in from the watch (simulated here); settled after at least 3 of the 5 minutes moving
+        if (Math.random() < 0.92) { careRun.walked += 250; careRun.lastStep = Date.now(); }
+        say(tt < 6000 ? "Let's walk slowly for 5 minutes." : Date.now() - careRun.lastStep > 60000 ? "Whenever you're ready." : "I can feel us moving.");
       }
       if (t >= careRun.total) finishCare(true);
     }
-    if (k !== "Effort" && pause) {
-      // the pacer starts after the pause
-      var cb = document.querySelector("#careblob .bstage");
-      if (cb) { cb.classList.remove("st-breathe"); cb.classList.add("st-wait"); setTimeout(function () { if (cb) { cb.classList.remove("st-wait"); cb.classList.add("st-breathe"); } }, pause); }
-    }
+    if (pause && stage) { stage.classList.remove("st-breathe"); stage.classList.add("st-wait"); setTimeout(function () { stage.classList.remove("st-wait"); stage.classList.add("st-breathe"); }, pause); }
     tick();
   }
   function stopCare() { if (careRun) clearInterval(careRun.timer); }
   function finishCare(auto) {
     if (!careRun) return;
     stopCare();
-    var r = careRun, settled = r.bpmNow - r.rest <= 10;
+    var r = careRun;
     careRun = null;
+    // walking counts by steps (stopping early is done, not settled); a wind down is only known the next morning
+    var settled = r.mode === "winddown" ? null : r.mode === "walk" ? !!auto && r.walked >= 180000 : r.bpmNow - r.rest <= 10;
     var m = byId[r.id];
-    if (m) { S.care[r.id] = { kind: r.k, type: r.k === "Effort" ? "rest" : "breathe", from: r.start, to: r.bpmNow, settled: settled }; save(); }
-    var lv = careFor(m).lv;
+    if (m) { S.care[r.id] = { mode: r.mode, kind: r.k, settled: settled, from: r.start, to: r.bpmNow, ts: Date.now() }; save(); }
+    var lv = m ? careFor(m).lv : 4;
     var host = document.getElementById("careblob");
-    if (host) host.innerHTML = settled ? blob(1, { f: 2.4, state: "puff", box: 300 }) : blob(lv, { f: 2.4, state: lv >= 4 ? "flat" : "wait", pal: "sage", box: 300 });
+    if (host) host.innerHTML = settled ? blob(1, { f: 2.4, state: "puff", box: 300 }) :
+      blob(lv, { f: 2.4, state: r.mode === "winddown" ? "winddown" : lv >= 4 ? "flat" : "wait", pal: r.mode === "winddown" ? "dusk" : "sage", box: 300 });
     var cue = document.getElementById("cue"), btn = document.getElementById("caredone");
-    if (cue) cue.textContent = settled ? "I feel rounder already." : "That's okay, I'm still a bit flat.";
+    if (cue) cue.textContent = r.mode === "winddown" ? "Sleep well. I'll see how we slept." : settled ? "I feel rounder already." : "That's okay, I'm still a bit flat.";
     if (btn) { btn.textContent = m ? (nextStory(m.day) ? "Next story" : "Back to its day") : "Done"; btn.setAttribute("data-act", "careexit"); }
     var nn = document.querySelector(".care .textbtn"); if (nn) nn.hidden = true;
   }
@@ -668,7 +823,8 @@
       var list = storiesOf(d).sort(function (a, b) { return a.peakMin - b.peakMin; });
       if (!list.length) return;
       var gr = groupsOf(list), shown = {};
-      h += '<div class="group"><h2>' + (d.date === TODAY ? "Tonight" : shortDate(d.date)) + "</h2>" + (d.context ? '<span class="chip ctx">' + esc(d.context) + "</span>" : "") + '<ul class="rows">' +
+      h += '<div class="group"><h2>' + (d.date === TODAY ? "Tonight" : shortDate(d.date)) + "</h2>" + (d.context ? '<span class="chip ctx">' + esc(d.context) + "</span>" : "") +
+        (d.sleep ? '<span class="chip ctx">Slept ' + sleepText(d.sleep.minutesAsleep) + "</span>" : "") + '<ul class="rows">' +
         list.map(function (m) {
           if (!gr.used[m.id]) return vcard(m);
           var g = gr.groups.filter(function (x) { return x.indexOf(m) >= 0; })[0];
@@ -749,6 +905,46 @@
         body: "The morning after a heavy day, my resting heartbeat was about " + plural(beats, "beat") + " " + (d3 > 0 ? "higher" : "lower") + " than after a light one.",
         evidence: "Based on " + plural(aH.length, "heavy day") + " and " + plural(aL.length, "lighter one") + ".",
         so: d3 > 0 ? "After a heavy day, let's wind down early and start the next one gently." : "Heavy days don't seem to tire my heart out, so let's not worry about one." });
+
+    // sleep: the whole day after a short night (under 6.5 h) against after a full night
+    var sh = [], fu = [];
+    DAYS_.forEach(function (d) { var w = wholeOf(d); if (w == null || !d.sleep) return; (d.sleep.minutesAsleep < 390 ? sh : fu).push(w); });
+    var aSh = mean(sh), aFu = mean(fu), d4 = aSh - aFu, c4 = conf(sh.length >= 2 && fu.length >= 2, Math.abs(d4) < 0.8);
+    P.push(c4 !== "Starting to see it" ? { id: "sleep", conf: c4, icon: "sleeping", title: "I can't tell yet whether short nights change how flat I get",
+      body: c4 === "Needs more days" ? "I need a few more short and full nights before I can tell." : "Short and full nights have left me about as flat as each other so far. I'll keep watching." } :
+      { id: "sleep", conf: c4, title: d4 > 0 ? "Short nights leave me flatter" : "Short nights don't seem to flatten me",
+        tiles: [{ illo: "sleeping", label: "After a full night", sub: cap(levelLabel(aFu)) }, { illo: "something-due", label: "After a short night", sub: cap(levelLabel(aSh)) }],
+        body: "After a short night I ended up " + levelWord(aSh) + ". After a full night I was " + levelWord(aFu) + ".",
+        evidence: "Based on " + plural(sh.length, "day") + " after a short night and " + fu.length + " after a full one.",
+        so: d4 > 0 ? "When there's something due, let's wind down early the night before." : "Short nights don't seem to matter much, so let's not worry about one." });
+
+    // HRV: the next morning's steadiness after a flat day against a light day
+    var hf = [], hl = [];
+    for (var j = 0; j < DAYS_.length - 1; j++) { var wj = wholeOf(DAYS_[j]), nx = DAYS_[j + 1]; if (wj == null || nx.hrv == null) continue; (wj >= 4 ? hf : hl).push(nx.hrv); }
+    var aHf = mean(hf), aHl = mean(hl), d5 = aHl - aHf, c5 = conf(hf.length >= 2 && hl.length >= 2, Math.abs(d5) < 4);
+    P.push(c5 !== "Starting to see it" ? { id: "hrv", conf: c5, icon: "quiet-day", title: "I can't tell yet whether flat days change my heart's steadiness",
+      body: c5 === "Needs more days" ? "I need a few more flat and light days before I can tell." : "My heart has been about as steady after flat days as after light ones. I'll keep watching." } :
+      { id: "hrv", conf: c5, title: d5 > 0 ? "My heart is less steady the morning after a flat day" : "My heart stays steady after flat days",
+        tiles: [{ illo: "quiet-day", label: "After a flat day", sub: "About " + Math.round(aHf) + " ms" }, { illo: "busy-day", label: "After a light day", sub: "About " + Math.round(aHl) + " ms" }],
+        body: "The morning after a flat day, my heart's steadiness (HRV) was about " + Math.round(aHf) + " ms. After a light day it was about " + Math.round(aHl) + " ms.",
+        evidence: "Based on " + plural(hf.length, "flat day") + " and " + hl.length + " light ones.",
+        so: d5 > 0 ? "After a flat day, let's keep the next morning gentle." : "Flat days don't seem to linger, so let's not read too much into one." });
+
+    // winding down: how long it took to fall asleep after winding down, against other nights
+    var wd = [], ot = [];
+    for (var q = 0; q < DAYS_.length - 1; q++) {
+      var night = DAYS_[q + 1].sleep; if (!night) continue;
+      var did = DAYS_[q].moments.some(function (m) { var c = careOf(m); return c && c.mode === "winddown"; });
+      (did ? wd : ot).push(night.minutesToFallAsleep);
+    }
+    var aWd = mean(wd), aOt = mean(ot), d6 = aOt - aWd, c6 = conf(wd.length >= 2 && ot.length >= 2, Math.abs(d6) < 2);
+    P.push(c6 !== "Starting to see it" ? { id: "winddown", conf: c6, icon: "sleeping", title: "I can't tell yet whether winding down helps me sleep",
+      body: c6 === "Needs more days" ? "Let's wind down together a few more evenings, then I'll know." : "I've fallen asleep about as fast either way so far. I'll keep watching." } :
+      { id: "winddown", conf: c6, title: d6 > 0 ? "Winding down helps me fall asleep sooner" : "Winding down doesn't seem to change how fast I fall asleep",
+        tiles: [{ illo: "sleeping", label: "After winding down", sub: "About " + plural(Math.round(aWd), "minute") }, { illo: "quiet-day", label: "Other nights", sub: "About " + plural(Math.round(aOt), "minute") }],
+        body: "After we wound down, I fell asleep in about " + plural(Math.round(aWd), "minute") + ". Other nights it took about " + plural(Math.round(aOt), "minute") + ".",
+        evidence: "Based on " + plural(wd.length, "night") + " after winding down and " + ot.length + " others.",
+        so: d6 > 0 ? "On late, flat evenings, let's wind down together." : "Let's keep winding down only when it feels nice." });
     return P;
   }
   function meter(k) {
@@ -768,7 +964,7 @@
       '<span class="mline">' + meter(g.n ? level(g.avg) : 0) + '<span class="cnt">' + plural(g.n, "story", "stories") + "</span></span></span></li>";
   }
   function patternHtml(p) {
-    var v = S.sugg[p.id], yes = p.conf === "Starting to see it";
+    var v = S.sugg[p.id] || (D.examples && D.examples.sugg[p.id]), yes = p.conf === "Starting to see it";
     var out = '<div class="pat"><span class="pill' + (yes ? " yes" : "") + '">' + p.conf + "</span>";
     if (!p.tiles) return out + '<div class="pat-unsure"><span class="tile t64">' + illo(p.icon, 60) + "</span><h3>" + p.title + "</h3></div>" +
       '<p class="pbody">' + esc(p.body) + '</p><p class="pbody" style="margin-top:8px">No suggestion yet.</p></div>';
@@ -786,13 +982,24 @@
       return diff >= 2 ? when + ", real days hit me harder than I guessed." : diff <= -2 ? when + ", real days are easier than I guessed." : "";
     }).filter(Boolean);
   }
-  function helpLines() {
-    var helped = {};
-    Object.keys(S.care).forEach(function (id) { var c = S.care[id]; (helped[c.kind] = helped[c.kind] || { n: 0, ok: 0, type: c.type }).n++; if (c.settled) helped[c.kind].ok++; });
-    return Object.keys(helped).map(function (k) {
-      var x = helped[k], what = x.type === "rest" ? "A rest" : "Slow breathing";
-      return x.ok ? what + " puffs me back up after " + k.toLowerCase() + "." : what + " hasn't puffed me back up after " + k.toLowerCase() + " yet.";
-    });
+  var HELPS = { breathe: "Slow breathing puffs me back up.", sigh: "A sigh puffs me back up after pressure.", soften: "Letting go of a tight body helps when I'm all tight.",
+    look: "Looking around helps me slow down.", walk: "Walking helps after a long sit.", stretch: "A stretch helps after a long time on my feet.",
+    rest: "A rest puts me right after a busy stretch.", winddown: "Winding down helps me fall asleep sooner." };
+  var NOT_YET = { breathe: "Slow breathing hasn't puffed me back up yet.", sigh: "Sighing hasn't helped me yet.", soften: "Softening hasn't helped me yet.",
+    look: "Looking around hasn't helped me slow down yet.", walk: "Walking hasn't helped me yet.", stretch: "Stretching hasn't helped me yet.",
+    rest: "Resting hasn't helped me yet.", winddown: "Winding down hasn't helped me sleep yet." };
+  var SOMETIMES = { breathe: "Slow breathing helps me sometimes.", sigh: "A sigh helps me sometimes.", soften: "Softening helps me sometimes.", look: "Looking around helps me sometimes.",
+    walk: "A walk helps me sometimes.", stretch: "A stretch helps me sometimes.", rest: "A rest helps me sometimes.", winddown: "Winding down helps me sometimes." };
+  // one line per mode tried: it helps, it sometimes helps, or not yet
+  function helpRows() {
+    return modeStats().map(function (x) { return { mode: x.mode, text: x.helps ? HELPS[x.mode] : x.ok ? SOMETIMES[x.mode] : NOT_YET[x.mode], helps: x.helps }; })
+      .sort(function (a, b) { return b.helps - a.helps; });
+  }
+  function helpLines() { return helpRows().map(function (r) { return r.text; }); }
+  function helpHtml() {
+    var rows = helpRows();
+    return rows.length ? '<ul class="helps">' + rows.map(function (r) { return '<li><span class="tile t64">' + modeIllo(r.mode, 56) + "</span><span>" + esc(r.text) + "</span></li>"; }).join("") + "</ul>" :
+      '<p class="pbody">When I ask for a little care, I\'ll remember what helped.</p>';
   }
 
   // ---------- learned: the path ----------
@@ -814,7 +1021,7 @@
     var nDays = DAYS.filter(function (d) { return wholeOf(d) != null; }).length;
     patterns().forEach(function (p) {
       var pday = p.conf === "Starting to see it" ? reachedOn(function (d) { return patterns(d).filter(function (q) { return q.id === p.id; })[0].conf === "Starting to see it"; }) : null;
-      N.push({ id: "pat-" + p.id, day: pday, title: p.tiles ? p.title : { still: "Still or moving?", steps: "Busy or quiet days?", rhr: "My resting heartbeat" }[p.id],
+      N.push({ id: "pat-" + p.id, day: pday, title: p.tiles ? p.title : { still: "Still or moving?", steps: "Busy or quiet days?", rhr: "My resting heartbeat", sleep: "Short or full nights?", hrv: "My heart's steadiness", winddown: "Winding down" }[p.id],
         icon: illo(p.tiles ? p.tiles[0].illo : p.icon, 60), state: p.conf === "Starting to see it" ? "done" : p.conf === "Not sure yet" ? "doing" : "todo",
         progress: p.conf === "Not sure yet" ? 0.5 : Math.min(1, nDays / 6), detail: patternHtml(p) });
     });
@@ -822,9 +1029,10 @@
     N.push({ id: "compare", title: "Real days vs practice", day: al.length ? reachedOn(function (d) { return anchorLines(d).length > 0; }) : null, icon: illo("learning", 60), state: al.length ? "done" : "doing", progress: 0.5,
       detail: (al.length ? al : ["So far my real days have felt about how my practice stories said they would."]).map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") });
     var hl = helpLines();
-    var careDays = Object.keys(S.care).map(function (id) { return byId[id] ? dayNo(byId[id].date) : null; }).filter(Boolean).sort(function (a, b) { return a - b; });
-    N.push({ id: "helps", title: "What helps me", day: careDays[0] || null, icon: illo("breathing", 60), state: hl.length ? "done" : "todo", progress: 0,
-      detail: (hl.length ? hl : ["When I ask for a little care, I'll remember what helped."]).map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") });
+    var helps = modeStats().filter(function (x) { return x.helps; });
+    var careDays = ALL.filter(function (m) { var c = careOf(m); return c && c.settled; }).map(function (m) { return dayNo(m.date); }).sort(function (a, b) { return a - b; });
+    N.push({ id: "helps", title: "What helps me", day: helps.length >= 2 ? careDays[1] || careDays[0] : null, icon: illo("breathing", 60), state: helps.length >= 2 ? "done" : hl.length ? "doing" : "todo", progress: Math.min(1, helps.length / 2),
+      detail: helpHtml() });
     // learned milestones first, then started ones, then the rest, so everything above the blob is done
     var rank = { done: 0, doing: 1, todo: 2 };
     N = N.map(function (n, i) { return [n, i]; }).sort(function (a, b) { return rank[a[0].state] - rank[b[0].state] || (a[0].day || 99) - (b[0].day || 99) || a[1] - b[1]; }).map(function (x) { return x[0]; });
@@ -890,16 +1098,24 @@
     h += '<section class="card"><h2 class="ltitle">Compared with my practice stories</h2><p class="lsub">Eight made-up afternoons I rated, so I can read my real days on the same scale.</p>' +
       (al.length ? al.map(function (l) { return '<p class="pbody">' + esc(l) + "</p>"; }).join("") : '<p class="pbody">So far my real days have felt about how my practice stories said they would.</p>') +
       '<div style="height:14px"></div><button class="btn ghost-btn" data-go="#practice">See my practice stories</button></section>';
-    var hl = helpLines();
-    h += '<section class="card"><h2 class="ltitle">What helps me</h2>' + (hl.length ? hl.map(function (l) { return '<p style="margin-top:10px">' + esc(l) + "</p>"; }).join("") :
-      '<p class="lsub">When I ask for a little care, I\'ll remember what helped.</p>') + "</section>";
+    h += '<section class="card"><h2 class="ltitle">What helps me</h2>' + helpHtml() + "</section>";
     return h;
   }
 
   // ---------- blob tab ----------
   function viewKnow() {
     return '<div class="screen with-tabs"><div class="dhead"><button class="back" data-go="#home" aria-label="Back">' + ICON.back + '</button><span></span><span></span></div>' +
-      '<h1 class="title" style="margin-top:4px">Everything I know</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>' + knowHtml() + "</div>" + tabbar("home");
+      '<h1 class="title" style="margin-top:4px">Everything I know</h1><p class="lede">Everything I\'ve worked out from the stories you\'ve helped me with.</p>' + knowHtml() + fitbitHtml() + "</div>" + tabbar("home");
+  }
+  function fitbitHtml() {
+    var d = todayDay(), sl = d.sleep || {}, ex = (d.exercise || []).map(function (e) { return e.type + ", " + e.mins + " min"; }).join(" · ") || "None yet today";
+    var row = { hr: ["The chart", "Finding when my heart picked up or raced"], steps: [d.steps.toLocaleString("en-AU"), "Telling whether I was still or on the move"],
+      exercise: [ex, "Knowing when I was exercising"], azm: [d.azm ? String(d.azm.total) : "–", "How hard I was moving"], rhr: [Math.round(d.rhr) + " bpm", "My calm baseline"],
+      sleep: [sl.minutesAsleep ? sleepText(sl.minutesAsleep) : "–", "How rested I am today"], hrv: [d.hrv != null ? Math.round(d.hrv) + " ms" : "–", "How steady my heart was overnight"],
+      breathing: [d.breathingRate != null ? d.breathingRate.toFixed(1) + " a minute" : "–", "How I breathed while asleep"], spo2: [d.spo2 != null ? Math.round(d.spo2) + "%" : "–", "Noted only"],
+      skin: [d.skinTemp != null ? (d.skinTemp >= 0 ? "+" : "") + d.skinTemp.toFixed(1) + "°" : "–", "Noted only"], calories: [d.calories ? d.calories.toLocaleString("en-AU") : "–", "Noted only"] };
+    return '<section class="card"><h2 class="ltitle">What I read from your Fitbit</h2><p class="lsub">Today\'s readings from your ' + esc(D.device || "Fitbit") + ', and what I use each one for.</p><ul class="fitlist">' +
+      (D.sources || []).map(function (src) { var r = row[src.id] || ["–", ""]; return '<li><span class="grow"><b>' + esc(src.name) + "</b><span>" + r[1] + '</span></span><span class="fitv">' + esc(r[0]) + "</span></li>"; }).join("") + "</ul></section>";
   }
 
   // ---------- hangout: blobs having a similar day ----------
@@ -1035,6 +1251,7 @@
     else if (r.name === "practice") html = viewPractice();
     else if (r.name === "learned" || r.name === "journey") html = viewLearned();
     else if (r.name === "know") html = viewKnow();
+    else if (r.name === "unwind") html = viewUnwind(r.arg);
     else if (r.name === "hangout") html = viewHangout();
     else html = viewHome();
     if (overlay && overlay.type === "popup") html += viewPopup(byId[overlay.id]);
@@ -1120,6 +1337,7 @@
     } else if (act === "hgbreathe") { if (hg) { hg.sess.send("breathe"); hgBreathe(); } }
     else if (act === "hgleave") { if (hg) hg.sess.send("leave"); hgStop(); go("#home"); }
     else if (act === "hgintrook") { S.hangout.seenIntro = true; save(); overlay = null; render(); }
+    else if (act === "goback") { if (history.length > 1) history.back(); else go("#home"); }
     else if (act === "lookopen") { overlay = { type: "look" }; rerenderKeepScroll(); }
     else if (act === "storybtn") {
       var ns = nextStory(); if (ns) { overlay = { type: "popup", id: ns.id }; rerenderKeepScroll(); } else go("#stories");
@@ -1160,7 +1378,7 @@
     } else if (act === "storyback") { draft = {}; go("#home"); }
     else if (act === "caredone") finishCare(false);
     else if (act === "careexit") {
-      var id = r.arg, m3 = byId[id]; stopCare(); careRun = null;
+      var id = (r.arg || "").split("/")[0], m3 = byId[id]; stopCare(); careRun = null;
       var nx3 = m3 && afterSave(m3);
       go(nx3 ? "#story/" + nx3.id : "#home");
     } else if (act === "sugg") { S.sugg[k] = S.sugg[k] === v ? null : v; save(); rerenderKeepScroll(); }
@@ -1194,6 +1412,6 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && overlay && overlay.type === "popup") { overlay = null; render(); } });
 
   // expose for testing in the console
-  window.__blob = { S: S, selfGuess: selfGuess, vignette: vignette, byId: byId, ALL: ALL };
+  window.__blob = { S: S, selfGuess: selfGuess, vignette: vignette, byId: byId, ALL: ALL, pickCare: pickCare, careRule: careRule, helpedBy: helpedBy };
   render();
 })();
